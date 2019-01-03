@@ -3,6 +3,7 @@ from tkinter import filedialog
 from tkinter import messagebox
 import pandas as pd
 import TrainNeuralNetwork as tn
+import InterpretWeights as iw
 
 class main:
     use_main_effect_nets = True # toggle this to use "main effect" nets #gui
@@ -15,14 +16,23 @@ class main:
     batch_size = 100 #gui
     num_samples = 30000 #30k datapoints, split 1/3-1/3-1/3
     # Network Parameters
+    # Network Parameters
     number_of_hide_unit =0 #gui
     units_arr =[] #gui
     class_index ="" #gui
     num_input = 10 #num of features
 
     def start(self):
-        tn.set_parameters(self.use_main_effect_nets, self.learning_rate,self.num_epochs, self.batch_size,
-                    self.df.shape[0], self.number_of_hide_unit, self.hidden_layers, 10, self.df, self.class_index)
+        tn.set_parameters(int(self.use_main_effect_nets), float(self.learning_rate.get()),int(self.num_epochs.get()), int(self.batch_size.get()),
+                   int(self.df.shape[0]), int(self.number_of_hide_unit.get()), self.units_arr, 10, self.df, int(self.class_index.get()))
+        sess, weights = tn.prepare_network()
+        w_dict = sess.run(weights)
+
+        # Variable-Order Interaction Ranking
+        print(iw.get_interaction_ranking(w_dict))
+
+        # Pairwise Interaction Ranking
+        print(iw.get_pairwise_ranking(w_dict))
 
     def __init__(self,master):
         self.master = master
@@ -40,7 +50,7 @@ class main:
 
         #learning rate
         self.learning_rate_label = tk.Label ( master,  text="learning rate:" )
-        self.learning_rate = tk.Entry (master, width=40)
+        self.learning_rate = tk.Entry(master, width=40)
         self.learning_rate_label.place(x=10, y=310)
         self.learning_rate.place(x=100, y=310)
 
@@ -67,13 +77,14 @@ class main:
         self.units_arr_entry = tk.Entry(master, width=40)
         self.units_arr_label.place(x=10, y=180)
         self.units_arr_entry.place(x=190, y=180)
-        #self.units_arr = self.units_arr_entry.split(',')
+        self.units_arr1 = self.units_arr_entry
+        self.units_arr=[140,100,60,20]
 
         #number_of_hide_unit
-        self.number_of_hide_unit_label = tk.Label(master, text="number of hide unit")
-        self.number_of_hide_unit = tk.Entry(master, width=40)
-        self.number_of_hide_unit_label.place(x=10, y=240)
-        self.number_of_hide_unit.place(x=150, y=240)
+        # self.number_of_hide_unit_label = tk.Label(master, text="number of hide unit")
+        # self.number_of_hide_unit = tk.Entry(master, width=40)
+        # self.number_of_hide_unit_label.place(x=10, y=240)
+        # self.number_of_hide_unit.place(x=150, y=240)
 
         #class_index
         self.class_index_label = tk.Label(master, text="class index:")
@@ -86,9 +97,9 @@ class main:
         self.use_main_effect_nets_entry = tk.Checkbutton(master, text="use main effect", variable=var1, width=40)
         self.use_main_effect_nets_entry.pack()
         self.use_main_effect_nets_entry.place(x=10, y=470)
-        self.use_main_effect_nets=var1
+        self.use_main_effect_nets=var1.get()
 
-        self.submit_button = tk.Button(master, text="start", width=20, command=self.start, state=tk.DISABLED)
+        self.submit_button = tk.Button(master, text="start", width=20, command=self.start)
         self.submit_button.pack()
         self.submit_button.place(x=100, y=500)
 
@@ -107,7 +118,7 @@ class main:
             tk.messagebox .showerror("fill params", "insert an csv file")
             return
 
-        self.df = pd.read_excel(self.file_path)
+        self.df = pd.read_csv(self.file_path)
 
         if self.df.empty:
             tk.messagebox .showerror("fill params", "invalid file!")

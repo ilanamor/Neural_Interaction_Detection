@@ -92,11 +92,3 @@ def get_pairwise_ranking(w_dict):
     pairwise_ranking = sorted(pairwise_strengths,key=operator.itemgetter(1), reverse=True)
 
     return pairwise_ranking
-
-w_dict = sess.run(weights)
-
-# Variable-Order Interaction Ranking
-print(get_interaction_ranking(w_dict))
-
-# Pairwise Interaction Ranking
-print(get_pairwise_ranking(w_dict))

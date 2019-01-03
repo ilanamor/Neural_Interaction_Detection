@@ -67,10 +67,11 @@ def prepare_network():
 
 
 def prepare_data():
-    Y = df.iloc[tg_index].as_matrix()
-    X = df.drop(tg_index).as_matrix()
+    Y = df.iloc[tg_index].values
+    X = df.drop(tg_index).values
 
 
+    a = num_samples // 3
     a = num_samples // 3
     b = 2 * num_samples // 3
 
