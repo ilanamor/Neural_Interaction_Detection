@@ -1,7 +1,6 @@
 import numpy as np
 import math
-import bisect
-import operator
+import pandas as pd
 import tensorflow as tf
 from sklearn.preprocessing import StandardScaler
 
@@ -23,10 +22,13 @@ num_samples = None
 num_hidden_layers = None
 hidden_layers = None
 num_input = None
-
+df = None
+tg_index = None
+weights = None
+biases = None
 
 def set_parameters(_use_main_effect_nets,_learning_rate,_num_epochs,_batch_size,
-                  _num_samples,_num_hidden_layers,_hidden_layers,_num_input):
+                  _num_samples,_num_hidden_layers,_hidden_layers,_num_input,_df,_tg_index):
     global use_main_effect_nets
     use_main_effect_nets = _use_main_effect_nets
     global learning_rate
@@ -43,34 +45,31 @@ def set_parameters(_use_main_effect_nets,_learning_rate,_num_epochs,_batch_size,
     hidden_layers = _hidden_layers
     global num_input
     num_input = _num_input
+    global df
+    df = _df
+    global tg_index
+    tg_index = _tg_index
+
 
 def prepare_network():
-    print()
-
-# tf Graph input
-X = tf.placeholder("float", [None, num_input])
-Y = tf.placeholder("float", [None, num_output])
-
-tf.set_random_seed(0)
-np.random.seed(0)
-
-# Interaction data generator
-def synth_func(x):
-    interaction1 = np.exp(np.fabs(x[:,0]-x[:,1]))
-    interaction2 = np.fabs(x[:,1]*x[:,2])
-    interaction3 = -1*np.power(np.power(x[:,2],2),np.fabs(x[:,3]))
-    interaction4 = np.power(x[:,0]*x[:,3],2)
-    interaction5 = np.log(np.power(x[:,3],2) + np.power(x[:,4],2) + np.power(x[:,6],2) + np.power(x[:,7],2))
-    main_effects = x[:,8] + 1/(1+np.power(x[:,9],2))
-
-    y =         interaction1 + interaction2 + interaction3 + interaction4 + interaction5 + main_effects
-    #ground truth:  {1,2}         {2,3}          {3,4}          {1,4}        {4,5,7,8}
-    return y
+    # tf Graph input
+    X = tf.placeholder("float", [None, num_input])
+    Y = tf.placeholder("float", [None, num_output])
+    tf.set_random_seed(0)
+    np.random.seed(0)
+    # Get data
+    tr_x, va_x, te_x, tr_y, va_y, te_y = prepare_data()
+    tr_size = tr_x.shape[0]
+    create_weights()
+    create_biases()
+    sess = construct_model(X, Y, tr_x, va_x, te_x, tr_y, va_y, te_y, tr_size)
+    return sess,weights
 
 
-def gen_synth_data():
-    X = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
-    Y = np.expand_dims(synth_func(X), axis=1)
+def prepare_data():
+    Y = df.iloc[tg_index].as_matrix()
+    X = df.drop(tg_index).as_matrix()
+
 
     a = num_samples // 3
     b = 2 * num_samples // 3
@@ -88,25 +87,22 @@ def gen_synth_data():
     return tr_x, va_x, te_x, tr_y, va_y, te_y
 
 
-# Get data
-tr_x, va_x, te_x, tr_y, va_y, te_y = gen_synth_data()
-tr_size = tr_x.shape[0]
-
 # access weights & biases
-weights = {
-    'h1': tf.Variable(tf.truncated_normal([num_input, hidden_layers[1]], 0, 0.1)),
-    'h2': tf.Variable(tf.truncated_normal([hidden_layers[1], hidden_layers[2]], 0, 0.1)),
-    'h3': tf.Variable(tf.truncated_normal([hidden_layers[2], hidden_layers[3]], 0, 0.1)),
-    'h4': tf.Variable(tf.truncated_normal([hidden_layers[3], hidden_layers[4]], 0, 0.1)),
-    'out': tf.Variable(tf.truncated_normal([hidden_layers[4], num_output], 0, 0.1))
-}
-biases = {
-    'b1': tf.Variable(tf.truncated_normal([hidden_layers[1]], 0, 0.1)),
-    'b2': tf.Variable(tf.truncated_normal([hidden_layers[2]], 0, 0.1)),
-    'b3': tf.Variable(tf.truncated_normal([hidden_layers[3]], 0, 0.1)),
-    'b4': tf.Variable(tf.truncated_normal([hidden_layers[4]], 0, 0.1)),
-    'out': tf.Variable(tf.truncated_normal([num_output], 0, 0.1))
-}
+def create_weights():
+    global weights
+    weights['h1'] = tf.Variable(tf.truncated_normal([num_input, hidden_layers[1]], 0, 0.1)),
+    for x in range(1, num_hidden_layers):
+        label = x+1
+        weights['h'+label] = tf.Variable(tf.truncated_normal([hidden_layers[x], hidden_layers[x+1]], 0, 0.1))
+    weights['out'] = tf.Variable(tf.truncated_normal([hidden_layers[num_hidden_layers], num_output], 0, 0.1))
+
+
+def create_biases():
+    global biases
+    for x in range(1, num_hidden_layers):
+        biases['b'+x] = tf.Variable(tf.truncated_normal([hidden_layers[x]], 0, 0.1))
+    biases['out'] = tf.Variable(tf.truncated_normal([num_output], 0, 0.1))
+
 
 def get_weights_uninet():
     weights = {
@@ -117,6 +113,7 @@ def get_weights_uninet():
     }
     return weights
 
+
 def get_biases_uninet():
     biases = {
         'b1': tf.Variable(tf.truncated_normal([n_hidden_uni], 0, 0.1)),
@@ -125,14 +122,16 @@ def get_biases_uninet():
     }
     return biases
 
+
 # Create model
 def normal_neural_net(x, weights, biases):
-    layer_1 = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
-    layer_2 = tf.nn.relu(tf.add(tf.matmul(layer_1, weights['h2']), biases['b2']))
-    layer_3 = tf.nn.relu(tf.add(tf.matmul(layer_2, weights['h3']), biases['b3']))
-    layer_4 = tf.nn.relu(tf.add(tf.matmul(layer_3, weights['h4']), biases['b4']))
-    out_layer = tf.matmul(layer_4, weights['out']) + biases['out']
+    layer = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
+    for x in range(2, num_hidden_layers):
+        layer_tmp = layer
+        layer = tf.nn.relu(tf.add(tf.matmul(layer_tmp, weights['h'+x]), biases['b'+x]))
+    out_layer = tf.matmul(layer, weights['out']) + biases['out']
     return out_layer
+
 
 def main_effect_net(x, weights, biases):
     layer_1 = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
@@ -141,55 +140,58 @@ def main_effect_net(x, weights, biases):
     out_layer = tf.matmul(layer_3, weights['out'])
     return out_layer
 
+
 # L1 regularizer
 def l1_norm(a): return tf.reduce_sum(tf.abs(a))
 
+
 # Construct model
-net = normal_neural_net(X, weights, biases)
+def construct_model(X,Y,tr_x, va_x, te_x, tr_y, va_y, te_y, tr_size):
+    net = normal_neural_net(X, weights, biases)
 
-if use_main_effect_nets:
-    me_nets = []
-    for x_i in range(num_input):
-        me_net = main_effect_net(tf.expand_dims(X[:,x_i],1), get_weights_uninet(), get_biases_uninet())
-        me_nets.append(me_net)
-    net = net + sum(me_nets)
+    if use_main_effect_nets:
+        me_nets = []
+        for x_i in range(num_input):
+            me_net = main_effect_net(tf.expand_dims(X[:,x_i],1), get_weights_uninet(), get_biases_uninet())
+            me_nets.append(me_net)
+        net = net + sum(me_nets)
 
-# Define optimizer
-loss_op = tf.losses.mean_squared_error(labels=Y, predictions=net)
-# loss_op = tf.sigmoid_cross_entropy_with_logits(labels=Y,logits=net) # use this in the case of binary classification
-sum_l1 = tf.reduce_sum([l1_norm(weights[k]) for k in weights])
-loss_w_reg_op = loss_op + l1_const*sum_l1
+    # Define optimizer
+    loss_op = tf.losses.mean_squared_error(labels=Y, predictions=net)
+    # loss_op = tf.sigmoid_cross_entropy_with_logits(labels=Y,logits=net) # use this in the case of binary classification
+    sum_l1 = tf.reduce_sum([l1_norm(weights[k]) for k in weights])
+    loss_w_reg_op = loss_op + l1_const*sum_l1
 
-batch = tf.Variable(0)
-decaying_learning_rate = tf.train.exponential_decay(learning_rate, batch*batch_size, tr_size, 0.95, staircase=True)
-optimizer = tf.train.AdamOptimizer(learning_rate=decaying_learning_rate).minimize(loss_w_reg_op, global_step=batch)
+    batch = tf.Variable(0)
+    decaying_learning_rate = tf.train.exponential_decay(learning_rate, batch*batch_size, tr_size, 0.95, staircase=True)
+    optimizer = tf.train.AdamOptimizer(learning_rate=decaying_learning_rate).minimize(loss_w_reg_op, global_step=batch)
 
-init = tf.global_variables_initializer()
-n_batches = tr_size // batch_size
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.25
-config.gpu_options.allow_growth = True
-sess = tf.Session(config=config)
-sess.run(tf.global_variables_initializer())
+    init = tf.global_variables_initializer()
+    n_batches = tr_size // batch_size
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = 0.25
+    config.gpu_options.allow_growth = True
+    sess = tf.Session(config=config)
+    sess.run(tf.global_variables_initializer())
 
-print('Initialized')
+    print('Initialized')
 
-for epoch in range(num_epochs):
+    for epoch in range(num_epochs):
 
-    batch_order = list(range(n_batches))
-    np.random.shuffle(batch_order)
+        batch_order = list(range(n_batches))
+        np.random.shuffle(batch_order)
 
-    for i in batch_order:
-        batch_x = tr_x[i * batch_size:(i + 1) * batch_size]
-        batch_y = tr_y[i * batch_size:(i + 1) * batch_size]
-        _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={X: batch_x, Y: batch_y})
+        for i in batch_order:
+            batch_x = tr_x[i * batch_size:(i + 1) * batch_size]
+            batch_y = tr_y[i * batch_size:(i + 1) * batch_size]
+            _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={X: batch_x, Y: batch_y})
 
-    if (epoch + 1) % 50 == 0:
-        tr_mse = sess.run(loss_op, feed_dict={X: tr_x, Y: tr_y})
-        va_mse = sess.run(loss_op, feed_dict={X: va_x, Y: va_y})
-        te_mse = sess.run(loss_op, feed_dict={X: te_x, Y: te_y})
-        print('Epoch', epoch + 1)
-        print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse', math.sqrt(te_mse))
-        print('\t', 'learning rate', lr)
+        if (epoch + 1) % 50 == 0:
+            tr_mse = sess.run(loss_op, feed_dict={X: tr_x, Y: tr_y})
+            va_mse = sess.run(loss_op, feed_dict={X: va_x, Y: va_y})
+            te_mse = sess.run(loss_op, feed_dict={X: te_x, Y: te_y})
+            print('Epoch', epoch + 1)
+            print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse', math.sqrt(te_mse))
+            print('\t', 'learning rate', lr)
 
-print('done')
+    return sess
