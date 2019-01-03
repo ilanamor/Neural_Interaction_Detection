@@ -1,3 +1,4 @@
+import numpy as np
 import math
 import bisect
 import operator
@@ -44,7 +45,7 @@ def set_parameters(_use_main_effect_nets,_learning_rate,_num_epochs,_batch_size,
     num_input = _num_input
 
 def prepare_network():
-
+    print()
 
 # tf Graph input
 X = tf.placeholder("float", [None, num_input])
@@ -93,17 +94,17 @@ tr_size = tr_x.shape[0]
 
 # access weights & biases
 weights = {
-    'h1': tf.Variable(tf.truncated_normal([num_input, n_hidden_1], 0, 0.1)),
-    'h2': tf.Variable(tf.truncated_normal([n_hidden_1, n_hidden_2], 0, 0.1)),
-    'h3': tf.Variable(tf.truncated_normal([n_hidden_2, n_hidden_3], 0, 0.1)),
-    'h4': tf.Variable(tf.truncated_normal([n_hidden_3, n_hidden_4], 0, 0.1)),
-    'out': tf.Variable(tf.truncated_normal([n_hidden_4, num_output], 0, 0.1))
+    'h1': tf.Variable(tf.truncated_normal([num_input, hidden_layers[1]], 0, 0.1)),
+    'h2': tf.Variable(tf.truncated_normal([hidden_layers[1], hidden_layers[2]], 0, 0.1)),
+    'h3': tf.Variable(tf.truncated_normal([hidden_layers[2], hidden_layers[3]], 0, 0.1)),
+    'h4': tf.Variable(tf.truncated_normal([hidden_layers[3], hidden_layers[4]], 0, 0.1)),
+    'out': tf.Variable(tf.truncated_normal([hidden_layers[4], num_output], 0, 0.1))
 }
 biases = {
-    'b1': tf.Variable(tf.truncated_normal([n_hidden_1], 0, 0.1)),
-    'b2': tf.Variable(tf.truncated_normal([n_hidden_2], 0, 0.1)),
-    'b3': tf.Variable(tf.truncated_normal([n_hidden_3], 0, 0.1)),
-    'b4': tf.Variable(tf.truncated_normal([n_hidden_4], 0, 0.1)),
+    'b1': tf.Variable(tf.truncated_normal([hidden_layers[1]], 0, 0.1)),
+    'b2': tf.Variable(tf.truncated_normal([hidden_layers[2]], 0, 0.1)),
+    'b3': tf.Variable(tf.truncated_normal([hidden_layers[3]], 0, 0.1)),
+    'b4': tf.Variable(tf.truncated_normal([hidden_layers[4]], 0, 0.1)),
     'out': tf.Variable(tf.truncated_normal([num_output], 0, 0.1))
 }
 
