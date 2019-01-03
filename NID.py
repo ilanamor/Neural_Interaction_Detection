@@ -9,23 +9,24 @@ from sklearn.preprocessing import StandardScaler
 # Train Neural Network
 #######################
 
-use_main_effect_nets = True # toggle this to use "main effect" nets
+use_main_effect_nets = True # toggle this to use "main effect" nets #gui
 
 # Parameters
-learning_rate = 0.01
-num_epochs = 200
-batch_size = 100
-display_step = 100
+learning_rate = 0.01 #gui
+num_epochs = 200 #gui
+batch_size = 100 #gui
+#display_step = 100 #NOT USED
+
 l1_const = 5e-5
 num_samples = 30000 #30k datapoints, split 1/3-1/3-1/3
 
 # Network Parameters
-n_hidden_1 = 140 # 1st layer number of neurons
+n_hidden_1 = 140 # 1st layer number of neurons #gui
 n_hidden_2 = 100 # 2nd layer number of neurons
 n_hidden_3 = 60 # 3rd "
 n_hidden_4 = 20 # 4th "
 n_hidden_uni = 10
-num_input = 10 # simple synthetic example input dimension
+num_input = 10 # simple synthetic example input dimension #num of features
 num_output = 1 # regression or classification output dimension
 
 # tf Graph input
@@ -178,6 +179,7 @@ print('done')
 ###################
 #Interpret Weights
 ###################
+
 def preprocess_weights(w_dict):
     hidden_layers = [int(layer[1:]) for layer in w_dict.keys() if layer.startswith('h')]
     output_h = ['h' + str(x) for x in range(max(hidden_layers),1,-1)]
