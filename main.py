@@ -78,7 +78,7 @@ class main:
         self.units_arr_label.place(x=10, y=180)
         self.units_arr_entry.place(x=190, y=180)
         self.units_arr1 = self.units_arr_entry
-        self.units_arr=[140,100,60,20]
+        self.units_arr= [140,100,60,20]
 
         #number_of_hide_unit
         # self.number_of_hide_unit_label = tk.Label(master, text="number of hide unit")
