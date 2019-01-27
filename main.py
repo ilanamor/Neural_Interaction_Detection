@@ -9,7 +9,7 @@ class main:
     use_main_effect_nets = True # toggle this to use "main effect" nets #gui
 
     # Parameters
-    file_path=""
+    file_path = ''
     df = None
     learning_rate = 0.01 #gui
     num_epochs = 200 #gui

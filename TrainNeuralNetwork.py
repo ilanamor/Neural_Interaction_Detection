@@ -29,25 +29,16 @@ biases = {}
 
 def set_parameters(_use_main_effect_nets,_learning_rate,_num_epochs,_batch_size,
                   _num_samples,_num_hidden_layers,_hidden_layers,_num_input,_df,_tg_index):
-    global use_main_effect_nets
+    global use_main_effect_nets, learning_rate,num_epochs,batch_size,num_samples,num_hidden_layers,hidden_layers,num_input,df,tg_index
     use_main_effect_nets = _use_main_effect_nets
-    global learning_rate
     learning_rate = _learning_rate
-    global num_epochs
     num_epochs = _num_epochs
-    global batch_size
     batch_size = _batch_size
-    global num_samples
     num_samples = _num_samples
-    global num_hidden_layers
     num_hidden_layers = _num_hidden_layers
-    global hidden_layers
     hidden_layers = _hidden_layers
-    global num_input
     num_input = _num_input
-    global df
     df = _df
-    global tg_index
     tg_index = _tg_index
 
 
@@ -71,7 +62,6 @@ def prepare_data():
     Y = np.expand_dims(df.iloc[:, tg_index].values, axis=1)
     dt_without_tg = df.drop(tg_index)
     X = dt_without_tg.values
-
 
     a = num_samples // 3
     a = num_samples // 3
