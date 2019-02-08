@@ -9,7 +9,7 @@ class main:
     use_main_effect_nets = True # toggle this to use "main effect" nets #gui
 
     # Parameters
-    file_path=""
+    file_path = ''
     df = None
     learning_rate = 0.01 #gui
     num_epochs = 200 #gui
@@ -83,7 +83,7 @@ class main:
         self.units_arr_label.place(x=10, y=240)
         self.units_arr_entry.place(x=190, y=240)
         self.units_arr1 = self.units_arr_entry
-        self.units_arr=[140,100,60,20]
+        self.units_arr= [140,100,60,20]
 
         #number_of_hide_unit
         # self.number_of_hide_unit_label = tk.Label(master, text="number of hide unit")

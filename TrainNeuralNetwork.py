@@ -24,30 +24,21 @@ hidden_layers = None
 num_input = None
 df = None
 tg_index = None
-weights = None
-biases = None
+weights = {}
+biases = {}
 
 def set_parameters(_use_main_effect_nets,_learning_rate,_num_epochs,_batch_size,
                   _num_samples,_num_hidden_layers,_hidden_layers,_num_input,_df,_tg_index):
-    global use_main_effect_nets
+    global use_main_effect_nets, learning_rate,num_epochs,batch_size,num_samples,num_hidden_layers,hidden_layers,num_input,df,tg_index
     use_main_effect_nets = _use_main_effect_nets
-    global learning_rate
     learning_rate = _learning_rate
-    global num_epochs
     num_epochs = _num_epochs
-    global batch_size
     batch_size = _batch_size
-    global num_samples
     num_samples = _num_samples
-    global num_hidden_layers
     num_hidden_layers = _num_hidden_layers
-    global hidden_layers
     hidden_layers = _hidden_layers
-    global num_input
     num_input = _num_input
-    global df
     df = _df
-    global tg_index
     tg_index = _tg_index
 
 
@@ -67,9 +58,10 @@ def prepare_network():
 
 
 def prepare_data():
-    Y = df.iloc[tg_index].values
-    X = df.drop(tg_index).values
-
+    #Y = np.reshape(df.iloc[:,tg_index].values,(-1,1))
+    Y = np.expand_dims(df.iloc[:, tg_index].values, axis=1)
+    dt_without_tg = df.drop(tg_index)
+    X = dt_without_tg.values
 
     a = num_samples // 3
     a = num_samples // 3
@@ -91,17 +83,18 @@ def prepare_data():
 # access weights & biases
 def create_weights():
     global weights
-    weights['h1'] = tf.Variable(tf.truncated_normal([num_input, hidden_layers[1]], 0, 0.1)),
+    weights['h1'] = tf.Variable(tf.truncated_normal([num_input, hidden_layers[0]], 0, 0.1)),
     for x in range(1, num_hidden_layers):
-        label = x+1
-        weights['h'+label] = tf.Variable(tf.truncated_normal([hidden_layers[x], hidden_layers[x+1]], 0, 0.1))
-    weights['out'] = tf.Variable(tf.truncated_normal([hidden_layers[num_hidden_layers], num_output], 0, 0.1))
+        label = str(x+1)
+        weights['h'+label] = tf.Variable(tf.truncated_normal([hidden_layers[x-1], hidden_layers[x]], 0, 0.1))
+    weights['out'] = tf.Variable(tf.truncated_normal([hidden_layers[num_hidden_layers-1], num_output], 0, 0.1))
 
 
 def create_biases():
     global biases
     for x in range(1, num_hidden_layers):
-        biases['b'+x] = tf.Variable(tf.truncated_normal([hidden_layers[x]], 0, 0.1))
+        label = str(x)
+        biases['b'+label] = tf.Variable(tf.truncated_normal([hidden_layers[x-1]], 0, 0.1))
     biases['out'] = tf.Variable(tf.truncated_normal([num_output], 0, 0.1))
 
 
@@ -127,9 +120,10 @@ def get_biases_uninet():
 # Create model
 def normal_neural_net(x, weights, biases):
     layer = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
-    for x in range(2, num_hidden_layers):
+    for x in range(1, num_hidden_layers):
+        label = str(x+1)
         layer_tmp = layer
-        layer = tf.nn.relu(tf.add(tf.matmul(layer_tmp, weights['h'+x]), biases['b'+x]))
+        layer = tf.nn.relu(tf.add(tf.matmul(layer_tmp, weights['h'+label]), biases['b'+label]))
     out_layer = tf.matmul(layer, weights['out']) + biases['out']
     return out_layer
 
@@ -148,6 +142,8 @@ def l1_norm(a): return tf.reduce_sum(tf.abs(a))
 
 # Construct model
 def construct_model(X,Y,tr_x, va_x, te_x, tr_y, va_y, te_y, tr_size):
+    global weights
+    global biases
     net = normal_neural_net(X, weights, biases)
 
     if use_main_effect_nets:
