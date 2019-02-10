@@ -5,6 +5,7 @@ import operator
 import tensorflow as tf
 from sklearn.preprocessing import StandardScaler
 import pandas as pd
+import pickle
 
 #######################
 # Train Neural Network
@@ -55,9 +56,17 @@ def gen_synth_data():
     X = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
     Y = np.expand_dims(synth_func(X), axis=1)
 
+    with open('X.pickle','wb') as handle:
+        pickle.dump(pd.DataFrame(X), handle,protocol=pickle.HIGHEST_PROTOCOL)
+
+    with open('Y.pickle','wb') as handle:
+        pickle.dump(pd.DataFrame(Y), handle,protocol=pickle.HIGHEST_PROTOCOL)
+
     np_array = np.concatenate((X, Y), axis=1)
     df = pd.DataFrame(np_array)
-    df.to_csv("synthetic.csv", header=False, index=False)
+    #df.to_csv("synthetic.csv", header=False, index=False, float_format='%g')
+    pd.DataFrame(X).to_csv("X.csv", header=False, index=False)
+    pd.DataFrame(Y).to_csv("Y.csv", header=False, index=False)
 
     a = num_samples // 3
     b = 2 * num_samples // 3
@@ -280,8 +289,3 @@ print(get_interaction_ranking(w_dict))
 # Pairwise Interaction Ranking
 print(get_pairwise_ranking(w_dict))
 
-a = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
-b = np.expand_dims(synth_func(a), axis=1)
-np_array = np.concatenate((a, b), axis=1)
-df = pd.DataFrame(np_array)
-df.to_csv("synthetic.csv",header=False,index=False)

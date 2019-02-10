@@ -60,7 +60,7 @@ def prepare_network():
 def prepare_data():
     #Y = np.reshape(df.iloc[:,tg_index].values,(-1,1))
     Y = np.expand_dims(df.iloc[:, tg_index].values, axis=1)
-    dt_without_tg = df.drop(tg_index)
+    dt_without_tg = df.drop(df.columns[[tg_index]], 1)
     X = dt_without_tg.values
 
     a = num_samples // 3

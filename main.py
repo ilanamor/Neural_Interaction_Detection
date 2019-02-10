@@ -23,8 +23,9 @@ class main:
     num_input = 10 #num of features
 
     def start(self):
-        tn.set_parameters(int(self.use_main_effect_nets), float(self.learning_rate.get()),int(self.num_epochs.get()), int(self.batch_size.get()),
-                   int(self.df.shape[0]), int(self.number_of_hide_unit.get()), self.units_arr, 10, self.df, int(self.class_index.get()))
+        # tn.set_parameters(int(self.use_main_effect_nets), float(self.learning_rate.get()),int(self.num_epochs.get()), int(self.batch_size.get()),
+        #            int(self.df.shape[0]), int(self.number_of_hide_unit.get()), self.units_arr, 10, self.df, int(self.class_index.get()))
+        tn.set_parameters(True,0.01,200,100,30000,4,[140,100,60,20],10,self.df,10)
         sess, weights = tn.prepare_network()
         w_dict = sess.run(weights)
 
