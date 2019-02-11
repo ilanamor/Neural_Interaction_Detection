@@ -132,3 +132,13 @@ class main:
 root = tk.Tk()
 my_gui = main(root)
 root.mainloop()
+
+
+
+
+
+
+
+
+
+
