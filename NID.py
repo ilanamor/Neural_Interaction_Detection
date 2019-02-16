@@ -52,15 +52,16 @@ def synth_func(x):
     return y
 
 
+
 def gen_synth_data():
     X = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
     Y = np.expand_dims(synth_func(X), axis=1)
 
     with open('X.pickle','wb') as handle:
-        pickle.dump(pd.DataFrame(X), handle,protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(X, handle,protocol=pickle.HIGHEST_PROTOCOL)
 
     with open('Y.pickle','wb') as handle:
-        pickle.dump(pd.DataFrame(Y), handle,protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(Y, handle,protocol=pickle.HIGHEST_PROTOCOL)
 
     np_array = np.concatenate((X, Y), axis=1)
     df = pd.DataFrame(np_array)
