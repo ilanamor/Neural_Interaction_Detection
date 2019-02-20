@@ -305,10 +305,12 @@ def create_heat_map():
 def interpret_weights(sess):
     w_dict = sess.run(weights)
 
-    # Variable-Order Interaction Ranking
+    # Higher-Order Interaction Ranking
+    print('\nHigher-Order Interaction Ranking')
     print(get_interaction_ranking(w_dict))
 
     # Pairwise Interaction Ranking
+    print('\nPairwise Interaction Ranking')
     print(get_pairwise_ranking(w_dict))
 
 # final results
@@ -323,8 +325,10 @@ def average_results():
 
     interaction_ranking = sorted(global_interaction_strengths.items(), key=operator.itemgetter(1), reverse=True)
 
-    print('\nFinal results:\n')
+    print('\nFinal results:\n##############')
+    print('\nHigher-Order Interaction Ranking')
     print(interaction_ranking)
+    print('\nPairwise Interaction Ranking')
     print(pairwise_ranking)
 
 run()
