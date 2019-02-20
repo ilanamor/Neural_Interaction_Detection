@@ -3,33 +3,43 @@ import math
 import bisect
 import operator
 import tensorflow as tf
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import train_test_split
 import pandas as pd
-import pickle
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 #######################
 # Train Neural Network
 #######################
 
-use_main_effect_nets = True # toggle this to use "main effect" nets #gui
+file_name = ""
+header = None
+use_main_effect_nets = True # toggle this to use "main effect" nets
 
-# Parameters
-learning_rate = 0.01 #gui
-num_epochs = 200 #gui
-batch_size = 100 #gui
-#display_step = 100 #NOT USED
-
+# Constant Parameters
+learning_rate = 0.01
+num_epochs = 200
+batch_size = 100
+#mlp
 l1_const = 5e-5
-num_samples = 30000 #30k datapoints, split 1/3-1/3-1/3
-
+#mlp-cutoff
+# l1_const = 1e-4
 # Network Parameters
 n_hidden_1 = 140 # 1st layer number of neurons #gui
 n_hidden_2 = 100 # 2nd layer number of neurons
 n_hidden_3 = 60 # 3rd "
 n_hidden_4 = 20 # 4th "
 n_hidden_uni = 10
-num_input = 10 # simple synthetic example input dimension #num of features
+num_hidden_layers=4
+hidden_layers=[140,100,60,20]
+
 num_output = 1 # regression or classification output dimension
+out_name="out_letters_generic.png"
+df=''
+num_samples = 20000
+num_input = 16 # simple synthetic example input dimension #num of features
+
 
 # tf Graph input
 X = tf.placeholder("float", [None, num_input])
@@ -38,42 +48,22 @@ Y = tf.placeholder("float", [None, num_output])
 tf.set_random_seed(0)
 np.random.seed(0)
 
-# Interaction data generator
-def synth_func(x):
-    interaction1 = np.exp(np.fabs(x[:,0]-x[:,1]))
-    interaction2 = np.fabs(x[:,1]*x[:,2])
-    interaction3 = -1*np.power(np.power(x[:,2],2),np.fabs(x[:,3]))
-    interaction4 = np.power(x[:,0]*x[:,3],2)
-    interaction5 = np.log(np.power(x[:,3],2) + np.power(x[:,4],2) + np.power(x[:,6],2) + np.power(x[:,7],2))
-    main_effects = x[:,8] + 1/(1+np.power(x[:,9],2))
+def read_csv():
+    df = pd.read_csv(file_name, header=header)
+    num_samples = 20000
+    num_input = 16  # simple synthetic example input dimension #num of features
+def gen_data():
 
-    y =         interaction1 + interaction2 + interaction3 + interaction4 + interaction5 + main_effects
-    #ground truth:  {1,2}         {2,3}          {3,4}          {1,4}        {4,5,7,8}
-    return y
+    label_encoder = LabelEncoder()
 
+    X = df.iloc[:, 1:17].values
+    Y = np.expand_dims(label_encoder.fit_transform(df.iloc[:,0].values),axis=1)
 
+    # tr_x, te_x, tr_y, te_y = train_test_split(X, Y, test_size=0.1, random_state=1)
+    # tr_x, va_x, tr_y, va_y = train_test_split(tr_x, tr_y, test_size=0.1111111111, random_state=1)
 
-def gen_synth_data():
-    X = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
-    Y = np.expand_dims(synth_func(X), axis=1)
-
-    with open('X.pickle','wb') as handle:
-        pickle.dump(X, handle,protocol=pickle.HIGHEST_PROTOCOL)
-
-    with open('Y.pickle','wb') as handle:
-        pickle.dump(Y, handle,protocol=pickle.HIGHEST_PROTOCOL)
-
-    np_array = np.concatenate((X, Y), axis=1)
-    df = pd.DataFrame(np_array)
-    #df.to_csv("synthetic.csv", header=False, index=False, float_format='%g')
-    pd.DataFrame(X).to_csv("X.csv", header=False, index=False)
-    pd.DataFrame(Y).to_csv("Y.csv", header=False, index=False)
-
-    a = num_samples // 3
-    b = 2 * num_samples // 3
-
-    tr_x, va_x, te_x = X[:a], X[a:b], X[b:]
-    tr_y, va_y, te_y = Y[:a], Y[a:b], Y[b:]
+    tr_x, te_x, tr_y, te_y = train_test_split(X, Y, test_size=0.2, random_state=1)
+    te_x, va_x, te_y, va_y = train_test_split(te_x, te_y, test_size=0.5, random_state=1)
 
     scaler_x = StandardScaler()
     scaler_y = StandardScaler()
@@ -86,24 +76,47 @@ def gen_synth_data():
 
 
 # Get data
-tr_x, va_x, te_x, tr_y, va_y, te_y = gen_synth_data()
+tr_x, va_x, te_x, tr_y, va_y, te_y = gen_data()
 tr_size = tr_x.shape[0]
 
 # access weights & biases
-weights = {
-    'h1': tf.Variable(tf.truncated_normal([num_input, n_hidden_1], 0, 0.1)),
-    'h2': tf.Variable(tf.truncated_normal([n_hidden_1, n_hidden_2], 0, 0.1)),
-    'h3': tf.Variable(tf.truncated_normal([n_hidden_2, n_hidden_3], 0, 0.1)),
-    'h4': tf.Variable(tf.truncated_normal([n_hidden_3, n_hidden_4], 0, 0.1)),
-    'out': tf.Variable(tf.truncated_normal([n_hidden_4, num_output], 0, 0.1))
-}
-biases = {
-    'b1': tf.Variable(tf.truncated_normal([n_hidden_1], 0, 0.1)),
-    'b2': tf.Variable(tf.truncated_normal([n_hidden_2], 0, 0.1)),
-    'b3': tf.Variable(tf.truncated_normal([n_hidden_3], 0, 0.1)),
-    'b4': tf.Variable(tf.truncated_normal([n_hidden_4], 0, 0.1)),
-    'out': tf.Variable(tf.truncated_normal([num_output], 0, 0.1))
-}
+# weights1 = {
+#     'h1': tf.Variable(tf.truncated_normal([num_input, n_hidden_1], 0, 0.1)),
+#     'h2': tf.Variable(tf.truncated_normal([n_hidden_1, n_hidden_2], 0, 0.1)),
+#     'h3': tf.Variable(tf.truncated_normal([n_hidden_2, n_hidden_3], 0, 0.1)),
+#     'h4': tf.Variable(tf.truncated_normal([n_hidden_3, n_hidden_4], 0, 0.1)),
+#     'out': tf.Variable(tf.truncated_normal([n_hidden_4, num_output], 0, 0.1))
+# }
+
+weights = {}
+
+def create_weights():
+    global weights
+    weights['h1'] = tf.Variable(tf.truncated_normal([num_input, hidden_layers[0]], 0, 0.1))
+    for x in range(1, num_hidden_layers):
+        label = str(x+1)
+        weights['h'+label] = tf.Variable(tf.truncated_normal([hidden_layers[x-1], hidden_layers[x]], 0, 0.1))
+    weights['out'] = tf.Variable(tf.truncated_normal([hidden_layers[num_hidden_layers-1], num_output], 0, 0.1))
+
+create_weights()
+
+# biases1 = {
+#     'b1': tf.Variable(tf.truncated_normal([n_hidden_1], 0, 0.1)),
+#     'b2': tf.Variable(tf.truncated_normal([n_hidden_2], 0, 0.1)),
+#     'b3': tf.Variable(tf.truncated_normal([n_hidden_3], 0, 0.1)),
+#     'b4': tf.Variable(tf.truncated_normal([n_hidden_4], 0, 0.1)),
+#     'out': tf.Variable(tf.truncated_normal([num_output], 0, 0.1))
+# }
+
+biases = {}
+def create_biases():
+    global biases
+    for x in range(1, num_hidden_layers+1):
+        label = str(x)
+        biases['b'+label] = tf.Variable(tf.truncated_normal([hidden_layers[x-1]], 0, 0.1))
+    biases['out'] = tf.Variable(tf.truncated_normal([num_output], 0, 0.1))
+
+create_biases()
 
 def get_weights_uninet():
     weights = {
@@ -124,11 +137,12 @@ def get_biases_uninet():
 
 # Create model
 def normal_neural_net(x, weights, biases):
-    layer_1 = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
-    layer_2 = tf.nn.relu(tf.add(tf.matmul(layer_1, weights['h2']), biases['b2']))
-    layer_3 = tf.nn.relu(tf.add(tf.matmul(layer_2, weights['h3']), biases['b3']))
-    layer_4 = tf.nn.relu(tf.add(tf.matmul(layer_3, weights['h4']), biases['b4']))
-    out_layer = tf.matmul(layer_4, weights['out']) + biases['out']
+    layer = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
+    for x in range(1, num_hidden_layers):
+        label = str(x+1)
+        layer_tmp = layer
+        layer = tf.nn.relu(tf.add(tf.matmul(layer_tmp, weights['h'+label]), biases['b'+label]))
+    out_layer = tf.matmul(layer, weights['out']) + biases['out']
     return out_layer
 
 def main_effect_net(x, weights, biases):
@@ -268,6 +282,7 @@ def get_pairwise_ranking(w_dict):
             pairs.remove((entry[1],entry[0]))
 
     pairwise_strengths = []
+    heatmap_df= [[0]*num_input for i in range(num_input)]
     for pair in pairs:
         a = pair[0]
         b = pair[1]
@@ -276,10 +291,19 @@ def get_pairwise_ranking(w_dict):
         wz = np.abs(np.minimum(wa , wb))*w_agg
         cab = np.sum(np.abs(wz))
         pairwise_strengths.append((pair, cab))
-#     list(zip(pairs, pairwise_strengths))
+        #save in a list
+        heatmap_df[b-1][a-1] = cab
 
+    #create heat-map
+    sns.set()
+    heatmap_df = pd.DataFrame(np.array(heatmap_df))
+    heatmap_df.index += 1
+    heatmap_df.columns += 1
+    ax = sns.heatmap(heatmap_df, cmap='Blues')
+    plt.savefig("heat_maps\\"+out_name)
+
+    #soet pairwise list
     pairwise_ranking = sorted(pairwise_strengths,key=operator.itemgetter(1), reverse=True)
-
     return pairwise_ranking
 
 w_dict = sess.run(weights)

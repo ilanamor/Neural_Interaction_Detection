@@ -59,11 +59,15 @@ def prepare_network():
 
 def prepare_data():
     #Y = np.reshape(df.iloc[:,tg_index].values,(-1,1))
-    Y = np.expand_dims(df.iloc[:, tg_index].values, axis=1)
-    dt_without_tg = df.drop(df.columns[[tg_index]], 1)
-    X = dt_without_tg.values
+    sync_random = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
 
-    a = num_samples // 3
+    # Y = np.expand_dims(df.iloc[:, tg_index].values, axis=1)
+    # dt_without_tg = df.drop(df.columns[[tg_index]], 1)
+    # X = dt_without_tg.values
+
+    X = df.drop(df.columns[[tg_index]], axis=1).values
+    Y = np.expand_dims(df.iloc[:, tg_index].values, axis=1)
+
     a = num_samples // 3
     b = 2 * num_samples // 3
 
@@ -83,7 +87,7 @@ def prepare_data():
 # access weights & biases
 def create_weights():
     global weights
-    weights['h1'] = tf.Variable(tf.truncated_normal([num_input, hidden_layers[0]], 0, 0.1)),
+    weights['h1'] = tf.Variable(tf.truncated_normal([num_input, hidden_layers[0]], 0, 0.1))
     for x in range(1, num_hidden_layers):
         label = str(x+1)
         weights['h'+label] = tf.Variable(tf.truncated_normal([hidden_layers[x-1], hidden_layers[x]], 0, 0.1))

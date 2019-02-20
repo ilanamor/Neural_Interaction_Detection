@@ -1,16 +1,15 @@
-import pickle
-
 import numpy as np
 import math
 import bisect
 import operator
-
-import sklearn
 import tensorflow as tf
-from sklearn.preprocessing import StandardScaler
-from sklearn.datasets.california_housing import fetch_california_housing
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import train_test_split
 import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
 
+import pickle
 
 #######################
 # Train Neural Network
@@ -25,7 +24,7 @@ batch_size = 100 #gui
 #display_step = 100 #NOT USED
 
 l1_const = 5e-5
-num_samples = 30000 #30k datapoints, split 1/3-1/3-1/3
+num_samples = 800000 #30k datapoints, split 1/3-1/3-1/3
 
 # Network Parameters
 n_hidden_1 = 140 # 1st layer number of neurons #gui
@@ -33,80 +32,37 @@ n_hidden_2 = 100 # 2nd layer number of neurons
 n_hidden_3 = 60 # 3rd "
 n_hidden_4 = 20 # 4th "
 n_hidden_uni = 10
-num_input = 10 # simple synthetic example input dimension #num of features
+num_input = 30 # simple synthetic example input dimension #num of features
 num_output = 1 # regression or classification output dimension
-
-####################################
-#df = pd.read_csv('synthetic.csv',header=None)
-df = fetch_california_housing(data_home=None, download_if_missing=True)
-tg_index=10
-####################################
 
 # tf Graph input
 X = tf.placeholder("float", [None, num_input])
 Y = tf.placeholder("float", [None, num_output])
 
 tf.set_random_seed(0)
-np.random.seed(0) #With the seed reset (every time), the same set of numbers will appear every time #ilana
-
-# Interaction data generator
-def synth_func(x):
-    interaction1 = np.exp(np.fabs(x[:,0]-x[:,1]))
-    interaction2 = np.fabs(x[:,1]*x[:,2])
-    interaction3 = -1*np.power(np.power(x[:,2],2),np.fabs(x[:,3]))
-    interaction4 = np.power(x[:,0]*x[:,3],2)
-    interaction5 = np.log(np.power(x[:,3],2) + np.power(x[:,4],2) + np.power(x[:,6],2) + np.power(x[:,7],2))
-    main_effects = x[:,8] + 1/(1+np.power(x[:,9],2))
-
-    y =         interaction1 + interaction2 + interaction3 + interaction4 + interaction5 + main_effects
-    #ground truth:  {1,2}         {2,3}          {3,4}          {1,4}        {4,5,7,8}
-    return y
-
-
-# X1 = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
-# Y1 = np.expand_dims(synth_func(X1), axis=1)
+np.random.seed(0)
 
 def gen_synth_data():
+    df=pd.read_csv('HIGGS.csv')
+    # X = df.iloc[:, 1:16]
+    # Y = np.expand_dims(df.iloc[:, 16].values, axis=1)
 
-    global df, tg_index
-    X1 = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
-    # X = df.drop(df.columns[[tg_index]], axis=1).values
-    # Y = np.expand_dims(df.iloc[:, tg_index].values, axis=1)
+    label_encoder = LabelEncoder()
 
-    # X = df.data
-    # Y = df.target
+    X = df.iloc[:, 0:30].values
+    Y = np.expand_dims(label_encoder.fit_transform(df.iloc[:,30].values),axis=1)
 
-    # X = pd.read_csv('X.csv', header=None).values
-    # Y = pd.read_csv('Y.csv', header=None).values
+    # a = int(num_samples * 0.8)
+    # b = int(num_samples * 0.9)
+    #
+    # tr_x, va_x, te_x = X[:a], X[a:b], X[b:]
+    # tr_y, va_y, te_y = Y[:a], Y[a:b], Y[b:]
 
-    with open('X.pickle', 'rb') as handle:
-        X= pickle.load(handle)
+    # tr_x, te_x, tr_y, te_y = train_test_split(X, Y, test_size=0.1, random_state=1)
+    # tr_x, va_x, tr_y, va_y = train_test_split(tr_x, tr_y, test_size=0.1111111111, random_state=1)
 
-    with open('Y.pickle', 'rb') as handle:
-        Y= pickle.load(handle)
-
-
-    #X1 = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
-    #Y1 = np.expand_dims(synth_func(X), axis=1)
-
-    # Y1 = np.expand_dims(X, axis=0)
-
-    # if np.array_equal(X,X1):
-    #     print(True)
-    # else:
-    #     print(False)
-
-    # if np.array_equal(Y,Y1):
-    #     print(True)
-    # else:
-    #     print(False)
-
-
-    a = num_samples // 3
-    b = 2 * num_samples // 3
-
-    tr_x, va_x, te_x = X[:a], X[a:b], X[b:]
-    tr_y, va_y, te_y = Y[:a], Y[a:b], Y[b:]
+    tr_x, te_x, tr_y, te_y = train_test_split(X, Y, test_size=0.2, random_state=1)
+    te_x, va_x, te_y, va_y = train_test_split(te_x, te_y, test_size=0.5, random_state=1)
 
     scaler_x = StandardScaler()
     scaler_y = StandardScaler()
@@ -301,6 +257,7 @@ def get_pairwise_ranking(w_dict):
             pairs.remove((entry[1],entry[0]))
 
     pairwise_strengths = []
+    heatmap_df= [[0]*num_input for i in range(num_input)]
     for pair in pairs:
         a = pair[0]
         b = pair[1]
@@ -309,6 +266,13 @@ def get_pairwise_ranking(w_dict):
         wz = np.abs(np.minimum(wa , wb))*w_agg
         cab = np.sum(np.abs(wz))
         pairwise_strengths.append((pair, cab))
+        heatmap_df[b-1][a-1] = cab
+    sns.set()
+    heatmap_df = pd.DataFrame(np.array(heatmap_df))
+    heatmap_df.index += 1
+    heatmap_df.columns += 1
+    ax = sns.heatmap(heatmap_df, cmap='Blues')
+    plt.savefig("out_higgs.png")
 #     list(zip(pairs, pairwise_strengths))
 
     pairwise_ranking = sorted(pairwise_strengths,key=operator.itemgetter(1), reverse=True)
@@ -321,6 +285,6 @@ w_dict = sess.run(weights)
 print(get_interaction_ranking(w_dict))
 
 # Pairwise Interaction Ranking
-print(get_pairwise_ranking(w_dict))
-
+pw= get_pairwise_ranking(w_dict)
+print(pw)
 
