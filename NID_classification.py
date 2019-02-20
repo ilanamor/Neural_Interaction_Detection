@@ -10,13 +10,14 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-
+# DataSet Parameters
 file_name = "datasets\letter-recognition.csv"
 # file_name = "datasets\Breast_cancer_wisconsin.csv"
 header = False
 index = False
 use_main_effect_nets = True # toggle this to use "main effect" nets
 heatmap_name = "heat_maps\out.png"
+
 
 def read_csv():
     df = pd.read_csv(file_name) if header else pd.read_csv(file_name, header=None)
@@ -25,13 +26,12 @@ def read_csv():
     num_input = df.shape[1]-1 #without the target column
     return df,num_samples,num_input,1
 
-# Parameters
+
+# Network Parameters
 learning_rate = 0.01
 num_epochs = 200
 batch_size = 100
 l1_const = 5e-5
-
-# Network Parameters
 n_hidden_1 = 140 # 1st layer number of neurons #gui
 n_hidden_2 = 100 # 2nd layer number of neurons
 n_hidden_3 = 60 # 3rd "
@@ -45,16 +45,46 @@ global_interaction_strengths={}
 X = tf.placeholder("float", [None, num_input])
 Y = tf.placeholder("float", [None, num_output])
 
+# Random seeds
 tf.set_random_seed(0)
 np.random.seed(0)
 
+# access weights & biases
+weights = {
+    'h1': tf.Variable(tf.truncated_normal([num_input, n_hidden_1], 0, 0.1)),
+    'h2': tf.Variable(tf.truncated_normal([n_hidden_1, n_hidden_2], 0, 0.1)),
+    'h3': tf.Variable(tf.truncated_normal([n_hidden_2, n_hidden_3], 0, 0.1)),
+    'h4': tf.Variable(tf.truncated_normal([n_hidden_3, n_hidden_4], 0, 0.1)),
+    'out': tf.Variable(tf.truncated_normal([n_hidden_4, num_output], 0, 0.1))
+}
+biases = {
+    'b1': tf.Variable(tf.truncated_normal([n_hidden_1], 0, 0.1)),
+    'b2': tf.Variable(tf.truncated_normal([n_hidden_2], 0, 0.1)),
+    'b3': tf.Variable(tf.truncated_normal([n_hidden_3], 0, 0.1)),
+    'b4': tf.Variable(tf.truncated_normal([n_hidden_4], 0, 0.1)),
+    'out': tf.Variable(tf.truncated_normal([num_output], 0, 0.1))
+}
 
+# Main function - running flow
+def run():
+    X_full,Y_full = prepare_df()
+    kfold = KFold(n_splits=5, random_state=None, shuffle=False)
+    for train, test in kfold.split(X_full):
+        tr_x, te_x, tr_y, te_y = prepare_data(train,test,X_full,Y_full)
+        tr_size = tr_x.shape[0]
+        sess = construct_model(tr_x, te_x, tr_y, te_y, tr_size)
+        interpret_weights(sess)
+    average_results()
+    create_heat_map()
+
+# Prepare the df - create X,Y
 def prepare_df():
     label_encoder = LabelEncoder()
     X = df.iloc[:, 0:num_input].values
     Y= np.expand_dims(label_encoder.fit_transform(df.iloc[:,-1].values),axis=1)
     return X,Y
 
+# Train & Test split
 def prepare_data(train, test, X_full, Y_full):
     tr_x, te_x, tr_y, te_y = X_full[train], X_full[test], Y_full[train], Y_full[test]
     scaler_x = StandardScaler()
@@ -65,18 +95,8 @@ def prepare_data(train, test, X_full, Y_full):
     tr_y, te_y = scaler_y.transform(tr_y), scaler_y.transform(te_y)
     return tr_x, te_x, tr_y, te_y
 
-def run():
-    X_full,Y_full = prepare_df()
-    kfold = KFold(n_splits=5, random_state=None, shuffle=False)
-    for train, test in kfold.split(X_full):
-        tr_x, te_x, tr_y, te_y = prepare_data(train,test,X_full,Y_full)
-        tr_size = tr_x.shape[0]
-        sess = constuct_model(tr_x, te_x, tr_y, te_y, tr_size)
-        interpret_weights(sess)
-    average_results()
-    create_heat_map()
-
-def constuct_model(tr_x, te_x, tr_y, te_y,tr_size):
+# Construct the model
+def construct_model(tr_x, te_x, tr_y, te_y,tr_size):
     # Construct model
     net = normal_neural_net(X, weights, biases)
 
@@ -131,22 +151,7 @@ def constuct_model(tr_x, te_x, tr_y, te_y,tr_size):
     print('done')
     return sess
 
-# access weights & biases
-weights = {
-    'h1': tf.Variable(tf.truncated_normal([num_input, n_hidden_1], 0, 0.1)),
-    'h2': tf.Variable(tf.truncated_normal([n_hidden_1, n_hidden_2], 0, 0.1)),
-    'h3': tf.Variable(tf.truncated_normal([n_hidden_2, n_hidden_3], 0, 0.1)),
-    'h4': tf.Variable(tf.truncated_normal([n_hidden_3, n_hidden_4], 0, 0.1)),
-    'out': tf.Variable(tf.truncated_normal([n_hidden_4, num_output], 0, 0.1))
-}
-biases = {
-    'b1': tf.Variable(tf.truncated_normal([n_hidden_1], 0, 0.1)),
-    'b2': tf.Variable(tf.truncated_normal([n_hidden_2], 0, 0.1)),
-    'b3': tf.Variable(tf.truncated_normal([n_hidden_3], 0, 0.1)),
-    'b4': tf.Variable(tf.truncated_normal([n_hidden_4], 0, 0.1)),
-    'out': tf.Variable(tf.truncated_normal([num_output], 0, 0.1))
-}
-
+# Uninets for main effects - weights
 def get_weights_uninet():
     weights = {
         'h1': tf.Variable(tf.truncated_normal([1, n_hidden_uni], 0, 0.1)),
@@ -155,6 +160,8 @@ def get_weights_uninet():
         'out': tf.Variable(tf.truncated_normal([n_hidden_uni, num_output], 0, 0.1))
     }
     return weights
+
+# Uninets for main effects - biases
 def get_biases_uninet():
     biases = {
         'b1': tf.Variable(tf.truncated_normal([n_hidden_uni], 0, 0.1)),
@@ -172,6 +179,7 @@ def normal_neural_net(x, weights, biases):
     out_layer = tf.matmul(layer_4, weights['out']) + biases['out']
     return out_layer
 
+
 def main_effect_net(x, weights, biases):
     layer_1 = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
     layer_2 = tf.nn.relu(tf.add(tf.matmul(layer_1, weights['h2']), biases['b2']))
@@ -182,10 +190,6 @@ def main_effect_net(x, weights, biases):
 # L1 regularizer
 def l1_norm(a): return tf.reduce_sum(tf.abs(a))
 
-
-###################
-#Interpret Weights
-###################
 
 def preprocess_weights(w_dict):
     hidden_layers = [int(layer[1:]) for layer in w_dict.keys() if layer.startswith('h')]
@@ -198,6 +202,7 @@ def preprocess_weights(w_dict):
 
     return w_h1, w_agg
 
+# High-order interactions
 def get_interaction_ranking(w_dict):
     xdim = w_dict['h1'].shape[0]
     w_h1, w_agg = preprocess_weights(w_dict)
@@ -251,6 +256,7 @@ def get_interaction_ranking(w_dict):
 
     return interaction_ranking_pruned
 
+# Pairwise interactions
 def get_pairwise_ranking(w_dict):
     xdim = w_dict['h1'].shape[0]
     w_h1, w_agg = preprocess_weights(w_dict)
@@ -279,6 +285,7 @@ def get_pairwise_ranking(w_dict):
     pairwise_ranking = sorted(pairwise_strengths_round,key=operator.itemgetter(1), reverse=True)
     return pairwise_ranking
 
+# create HetMap
 def create_heat_map():
     pairwise_2d = [[0] * num_input for i in range(num_input)]
     for pair,cab in global_pairwise_strengths.items():
@@ -294,6 +301,7 @@ def create_heat_map():
         os.remove(heatmap_name) # Opt.: os.system("rm "+strFile)
     plt.savefig(heatmap_name)
 
+
 def interpret_weights(sess):
     w_dict = sess.run(weights)
 
@@ -303,7 +311,7 @@ def interpret_weights(sess):
     # Pairwise Interaction Ranking
     print(get_pairwise_ranking(w_dict))
 
-
+# final results
 def average_results():
     for pair, cab in global_pairwise_strengths.items():
         global_pairwise_strengths[pair] = float(cab) / 5
@@ -318,6 +326,5 @@ def average_results():
     print('\nFinal results:\n')
     print(interaction_ranking)
     print(pairwise_ranking)
-
 
 run()
