@@ -21,7 +21,7 @@ heatmap_name = "heat_maps\out.png"
 
 def read_csv():
     df = pd.read_csv(file_name) if header else pd.read_csv(file_name, header=None)
-    df = df.drop(df.columns[[0]], axis=1) if index else df
+    df = df.drop(df.columns[[0]], axis=1) if index else df #without the index column
     num_samples = df.shape[0]
     num_input = df.shape[1]-1 #without the target column
     return df,num_samples,num_input,1
@@ -150,6 +150,8 @@ def construct_model(tr_x, te_x, tr_y, te_y,tr_size):
 
     print('done')
     return sess
+
+
 
 # Uninets for main effects - weights
 def get_weights_uninet():
