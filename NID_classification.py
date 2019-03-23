@@ -1,3 +1,5 @@
+import csv
+import datetime
 import os
 import numpy as np
 import math
@@ -10,13 +12,16 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+# Just disables the warning, doesn't enable AVX/FMA
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 # DataSet Parameters
-file_name = "datasets\letter-recognition.csv"
-# file_name = "datasets\Breast_cancer_wisconsin.csv"
-header = False
-index = False
+# file_name = "datasets\letter-recognition.csv"
+file_name = "datasets\hour.csv"
+header = True
+index = True
 use_main_effect_nets = True # toggle this to use "main effect" nets
-heatmap_name = "heat_maps\out.png"
+heatmap_name = "heat_maps\out-syn.png"
 
 
 def read_csv():
@@ -46,8 +51,8 @@ X = tf.placeholder("float", [None, num_input])
 Y = tf.placeholder("float", [None, num_output])
 
 # Random seeds
-tf.set_random_seed(0)
-np.random.seed(0)
+# tf.set_random_seed(0)
+# np.random.seed(0)
 
 # access weights & biases
 weights = {
@@ -80,9 +85,10 @@ def run():
 # Prepare the df - create X,Y
 def prepare_df():
     label_encoder = LabelEncoder()
-    X = df.iloc[:, 0:num_input].values
-    Y= np.expand_dims(label_encoder.fit_transform(df.iloc[:,-1].values),axis=1)
-    return X,Y
+    X_data = df.iloc[:, 0:num_input].values
+    #Y= np.expand_dims(label_encoder.fit_transform(df.iloc[:,-1].values),axis=1)
+    Y_data = np.expand_dims(df.iloc[:, -1].values, axis=1)
+    return X_data,Y_data
 
 # Train & Test split
 def prepare_data(train, test, X_full, Y_full):
@@ -332,5 +338,16 @@ def average_results():
     print(interaction_ranking)
     print('\nPairwise Interaction Ranking')
     print(pairwise_ranking)
+    write_to_csv(interaction_ranking, "higher_order_ranking")
+    write_to_csv(pairwise_ranking, "pairwise_ranking")
+
+
+def write_to_csv(interactions, name):
+    with open(name + ".csv", "w") as out:
+        csv_out = csv.writer(out,lineterminator='\n')
+        csv_out.writerow(['interaction', 'strength'])
+        for row in interactions:
+            csv_out.writerow(row)
+
 
 run()
