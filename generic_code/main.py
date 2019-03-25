@@ -157,14 +157,14 @@ class main:
         self.entryOutPath.insert(0, self.out_path)
 
 
-def on_closing():
-    if messagebox.askokcancel("Quit", "Do you want to quit?"):
-        root.destroy()
+# def on_closing():
+#     if messagebox.askokcancel("Quit", "Do you want to quit?"):
+#         root.destroy()
 
 
 root = tk.Tk()
 my_gui = main(root)
-root.protocol("WM_DELETE_WINDOW", on_closing)
+# root.protocol("WM_DELETE_WINDOW", on_closing)
 root.mainloop()
 
 

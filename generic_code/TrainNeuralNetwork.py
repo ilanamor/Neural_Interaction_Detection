@@ -125,9 +125,9 @@ def get_biases_uninet():
 def normal_neural_net(x, weights, biases):
     layer = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
     for x in range(1, num_hidden_layers):
-        label = str(x+1)
+        label = str(x + 1)
         layer_tmp = layer
-        layer = tf.nn.relu(tf.add(tf.matmul(layer_tmp, weights['h'+label]), biases['b'+label]))
+        layer = tf.nn.relu(tf.add(tf.matmul(layer_tmp, weights['h' + label]), biases['b' + label]))
     out_layer = tf.matmul(layer, weights['out']) + biases['out']
     return out_layer
 

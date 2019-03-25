@@ -50,7 +50,7 @@ class NID:
         self.out_path = output_path
         self.hidden_layers = hidden_layers_structure
         self.n_hidden_layers = len(hidden_layers_structure)
-        self.heatmap_name=self.out_path+"\letters_heatmap.png"
+        self.heatmap_name=self.out_path+"\housing_1.png"
         # set params
         self.is_classification = is_classification_data
         self.df, self.num_samples, self.num_input, self.num_output = self.read_csv()
@@ -110,72 +110,6 @@ class NID:
 
         return tr_x, te_x, tr_y, te_y, va_x, va_y
 
-
-    # Construct the model
-    def construct_model(self, tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size):
-        # Construct model
-        net = self.normal_neural_net(self.X, self.weights, self.biases)
-        # net = 0
-        # check main effects need
-        if self.use_main_effect_nets:
-            me_nets = []
-            for x_i in range(self.num_input):
-                me_net = self.main_effect_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(), self.get_biases_uninet())
-                me_nets.append(me_net)
-            net = net + sum(me_nets)
-
-        # Define optimizer
-        loss_op = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y,logits=net) if self.is_classification else tf.losses.mean_squared_error(labels=self.Y, predictions=net)
-        # loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y, logits=net) if self.is_classification else tf.losses.mean_squared_error(labels=self.Y, predictions=net)
-        # loss_op = tf.losses.mean_squared_error(labels=self.Y, predictions=net)
-        # loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y,logits=net) # use this in the case of binary classification
-        # loss_op = tf.reduce_mean(loss_op)
-        sum_l1 = tf.reduce_sum([self.l1_norm(self.weights[k]) for k in self.weights])
-        loss_w_reg_op = loss_op + self.l1_const * sum_l1
-        tf.print(sum_l1)
-        tf.print(loss_op)
-
-        batch = tf.Variable(0)
-        decaying_learning_rate = tf.train.exponential_decay(self.learning_rate, batch * self.batch_size, tr_size, 0.95, staircase=True)
-        optimizer = tf.train.AdamOptimizer(learning_rate=decaying_learning_rate).minimize(loss_w_reg_op, global_step=batch)
-
-        # init = tf.global_variables_initializer()
-        n_batches = tr_size // self.batch_size
-        config = tf.ConfigProto()
-        config.gpu_options.per_process_gpu_memory_fraction = 0.25
-        config.gpu_options.allow_growth = True
-        sess = tf.Session(config=config)
-        sess.run(tf.global_variables_initializer())
-
-        print('Initialized')
-
-        for epoch in range(self.num_epochs):
-
-            batch_order = list(range(n_batches))
-            np.random.shuffle(batch_order)
-
-            for i in batch_order:
-                batch_x = tr_x[i * self.batch_size:(i + 1) * self.batch_size]
-                batch_y = tr_y[i * self.batch_size:(i + 1) * self.batch_size]
-                _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
-
-            if (epoch + 1) % 50 == 0:
-                tr_mse = sess.run(loss_op, feed_dict={self.X: tr_x, self.Y: tr_y})
-                va_mse = sess.run(loss_op, feed_dict={self.X: va_x, self.Y: va_y})
-                te_mse = sess.run(loss_op, feed_dict={self.X: te_x, self.Y: te_y})
-                print('Epoch', epoch + 1)
-                if self.is_classification:
-                    print('\t', 'train rmse',tr_mse, 'val rmse', va_mse, 'test rmse',te_mse)
-                else:
-                    print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse', math.sqrt(te_mse))
-                # print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',
-                #       math.sqrt(te_mse))
-                #print('\t', 'train rmse', math.sqrt(tr_mse), 'test rmse', math.sqrt(te_mse))
-                print('\t', 'learning rate', lr)
-
-        print('done')
-        return sess
-
     # Network weights
     def create_weights(self):
         weights = {}
@@ -216,11 +150,17 @@ class NID:
 
     # Create model
     def normal_neural_net(self, x, weights, biases):
-        layer_1 = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
-        layer_2 = tf.nn.relu(tf.add(tf.matmul(layer_1, weights['h2']), biases['b2']))
-        layer_3 = tf.nn.relu(tf.add(tf.matmul(layer_2, weights['h3']), biases['b3']))
-        layer_4 = tf.nn.relu(tf.add(tf.matmul(layer_3, weights['h4']), biases['b4']))
-        out_layer = tf.matmul(layer_4, weights['out']) + biases['out']
+        # layer_1 = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
+        # layer_2 = tf.nn.relu(tf.add(tf.matmul(layer_1, weights['h2']), biases['b2']))
+        # layer_3 = tf.nn.relu(tf.add(tf.matmul(layer_2, weights['h3']), biases['b3']))
+        # layer_4 = tf.nn.relu(tf.add(tf.matmul(layer_3, weights['h4']), biases['b4']))
+        # out_layer = tf.matmul(layer_4, weights['out']) + biases['out']
+        # return out_layer
+        layer = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
+        for i in range(2, self.n_hidden_layers+1):
+            layer_tmp = layer
+            layer = tf.nn.relu(tf.add(tf.matmul(layer_tmp, weights['h' + str(i)]), biases['b' + str(i)]))
+        out_layer = tf.matmul(layer, weights['out']) + biases['out']
         return out_layer
 
 
@@ -233,6 +173,76 @@ class NID:
 
     # L1 regularizer
     def l1_norm(self, a): return tf.reduce_sum(tf.abs(a))
+
+    # Construct the model
+    def construct_model(self, tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size):
+        # Construct model
+        net = self.normal_neural_net(self.X, self.weights, self.biases)
+        # net = 0
+        # check main effects need
+        if self.use_main_effect_nets:
+            me_nets = []
+            for x_i in range(self.num_input):
+                me_net = self.main_effect_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(),
+                                              self.get_biases_uninet())
+                me_nets.append(me_net)
+            net = net + sum(me_nets)
+
+        # Define optimizer
+        loss_op = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y,
+                                                             logits=net) if self.is_classification else tf.losses.mean_squared_error(
+            labels=self.Y, predictions=net)
+        # loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y, logits=net) if self.is_classification else tf.losses.mean_squared_error(labels=self.Y, predictions=net)
+        # loss_op = tf.losses.mean_squared_error(labels=self.Y, predictions=net)
+        # loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y,logits=net) # use this in the case of binary classification
+        if self.is_classification:
+            loss_op = tf.reduce_mean(loss_op)
+        sum_l1 = tf.reduce_sum([self.l1_norm(self.weights[k]) for k in self.weights])
+        loss_w_reg_op = loss_op + self.l1_const * sum_l1
+
+        batch = tf.Variable(0)
+        decaying_learning_rate = tf.train.exponential_decay(self.learning_rate, batch * self.batch_size, tr_size, 0.95,
+                                                            staircase=True)
+        optimizer = tf.train.AdamOptimizer(learning_rate=decaying_learning_rate).minimize(loss_w_reg_op,
+                                                                                          global_step=batch)
+
+        # init = tf.global_variables_initializer()
+        n_batches = tr_size // self.batch_size
+        config = tf.ConfigProto()
+        config.gpu_options.per_process_gpu_memory_fraction = 0.25
+        config.gpu_options.allow_growth = True
+        sess = tf.Session(config=config)
+        sess.run(tf.global_variables_initializer())
+
+        print('Initialized')
+
+        for epoch in range(self.num_epochs):
+
+            batch_order = list(range(n_batches))
+            np.random.shuffle(batch_order)
+
+            for i in batch_order:
+                batch_x = tr_x[i * self.batch_size:(i + 1) * self.batch_size]
+                batch_y = tr_y[i * self.batch_size:(i + 1) * self.batch_size]
+                _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
+
+            if (epoch + 1) % 50 == 0:
+                tr_mse = sess.run(loss_op, feed_dict={self.X: tr_x, self.Y: tr_y})
+                va_mse = sess.run(loss_op, feed_dict={self.X: va_x, self.Y: va_y})
+                te_mse = sess.run(loss_op, feed_dict={self.X: te_x, self.Y: te_y})
+                print('Epoch', epoch + 1)
+                if self.is_classification:
+                    print('\t', 'train rmse', tr_mse, 'val rmse', va_mse, 'test rmse', te_mse)
+                else:
+                    print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',
+                          math.sqrt(te_mse))
+                # print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',
+                #       math.sqrt(te_mse))
+                # print('\t', 'train rmse', math.sqrt(tr_mse), 'test rmse', math.sqrt(te_mse))
+                print('\t', 'learning rate', lr)
+
+        print('done')
+        return sess
 
 
     def preprocess_weights(self, w_dict):

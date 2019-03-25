@@ -16,12 +16,12 @@ import matplotlib.pyplot as plt
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 # DataSet Parameters
-# file_name = "datasets\letter-recognition.csv"
-file_name = "datasets\hour.csv"
-header = True
-index = True
+file_name = "datasets\letter-recognition.csv"
+# file_name = "datasets\hour.csv"
+header = False
+index = False
 use_main_effect_nets = True # toggle this to use "main effect" nets
-heatmap_name = "heat_maps\out-syn.png"
+heatmap_name = "heat_maps\out-let2.png"
 
 
 def read_csv():
@@ -51,8 +51,8 @@ X = tf.placeholder("float", [None, num_input])
 Y = tf.placeholder("float", [None, num_output])
 
 # Random seeds
-# tf.set_random_seed(0)
-# np.random.seed(0)
+tf.set_random_seed(0)
+np.random.seed(0)
 
 # access weights & biases
 weights = {
@@ -79,6 +79,7 @@ def run():
         tr_size = tr_x.shape[0]
         sess = construct_model(tr_x, te_x, tr_y, te_y, tr_size)
         interpret_weights(sess)
+        break
     average_results()
     create_heat_map()
 
@@ -86,19 +87,26 @@ def run():
 def prepare_df():
     label_encoder = LabelEncoder()
     X_data = df.iloc[:, 0:num_input].values
-    #Y= np.expand_dims(label_encoder.fit_transform(df.iloc[:,-1].values),axis=1)
-    Y_data = np.expand_dims(df.iloc[:, -1].values, axis=1)
+    Y_data= np.expand_dims(label_encoder.fit_transform(df.iloc[:,-1].values), axis=1)
+    for y in range(len(Y_data)):
+        if Y_data[y]<=13:
+            Y_data[y]=1
+        else:
+            Y_data[y] = 0
+    # Y_data= pd.get_dummies(Y_data,dtype=int).values
+
+    # Y_data = np.expand_dims(df.iloc[:, -1].values, axis=1)
     return X_data,Y_data
 
 # Train & Test split
 def prepare_data(train, test, X_full, Y_full):
     tr_x, te_x, tr_y, te_y = X_full[train], X_full[test], Y_full[train], Y_full[test]
     scaler_x = StandardScaler()
-    scaler_y = StandardScaler()
+    # scaler_y = StandardScaler()
     scaler_x.fit(tr_x)
-    scaler_y.fit(tr_y)
+    # scaler_y.fit(tr_y)
     tr_x, te_x = scaler_x.transform(tr_x), scaler_x.transform(te_x)
-    tr_y, te_y = scaler_y.transform(tr_y), scaler_y.transform(te_y)
+    # tr_y, te_y = scaler_y.transform(tr_y), scaler_y.transform(te_y)
     return tr_x, te_x, tr_y, te_y
 
 # Construct the model
@@ -115,8 +123,9 @@ def construct_model(tr_x, te_x, tr_y, te_y,tr_size):
         net = net + sum(me_nets)
 
     # Define optimizer
-    loss_op = tf.losses.mean_squared_error(labels=Y, predictions=net)
-    # loss_op = tf.sigmoid_cross_entropy_with_logits(labels=Y,logits=net) # use this in the case of binary classification
+    # loss_op = tf.losses.mean_squared_error(labels=Y, predictions=net)
+    loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=Y,logits=net) # use this in the case of binary classification
+    # loss_op = tf.reduce_mean(loss_op)
     sum_l1 = tf.reduce_sum([l1_norm(weights[k]) for k in weights])
     loss_w_reg_op = loss_op + l1_const * sum_l1
 
@@ -151,7 +160,7 @@ def construct_model(tr_x, te_x, tr_y, te_y,tr_size):
             te_mse = sess.run(loss_op, feed_dict={X: te_x, Y: te_y})
             print('Epoch', epoch + 1)
             # print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse', math.sqrt(te_mse))
-            print('\t', 'train rmse', math.sqrt(tr_mse), 'test rmse', math.sqrt(te_mse))
+            # print('\t', 'train rmse', math.sqrt(tr_mse), 'test rmse', math.sqrt(te_mse))
             print('\t', 'learning rate', lr)
 
     print('done')
