@@ -10,6 +10,8 @@ from sklearn.model_selection import train_test_split, KFold
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import plotly.plotly as py
+import plotly.graph_objs as go
 
 class NID:
     # Just disables the warning, doesn't enable AVX/FMA
@@ -50,7 +52,7 @@ class NID:
         self.out_path = output_path
         self.hidden_layers = hidden_layers_structure
         self.n_hidden_layers = len(hidden_layers_structure)
-        self.heatmap_name=self.out_path+"\housing_1.png"
+        self.heatmap_name=self.out_path+"\pairwise_heatmap.png"
         # set params
         self.is_classification = is_classification_data
         self.df, self.num_samples, self.num_input, self.num_output = self.read_csv()
@@ -69,11 +71,23 @@ class NID:
     def read_csv(self):
         df = pd.read_csv(self.file_name) if self.header else pd.read_csv(self.file_name, header=None)
         df = df.drop(df.columns[[0]], axis=1) if self.index else df #without the index column
+        df = self.preprocessing(df)
         num_samples = df.shape[0]
         num_input = df.shape[1]-1 #without the target column
         num_out = df[df.columns[-1]].nunique() if self.is_classification else 1
         return df,num_samples,num_input,num_out
 
+    def preprocessing(self, df):
+        range = df.shape[1]-1 if self.is_classification else df.shape[1]
+        for y in df.columns[0:range]:
+            if (df[y].dtype == np.int32 or df[y].dtype == np.int64 or df[y].dtype == np.float32):
+                df[y] = df[y].astype('float64')
+            elif (df[y].dtype == np.object):
+                label_encoder = LabelEncoder()
+                df[y] = label_encoder.fit_transform(df[y]).astype('float64')
+            else:
+                continue
+        return df
 
     # Main function - running flow
     def run(self):
@@ -150,12 +164,6 @@ class NID:
 
     # Create model
     def normal_neural_net(self, x, weights, biases):
-        # layer_1 = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
-        # layer_2 = tf.nn.relu(tf.add(tf.matmul(layer_1, weights['h2']), biases['b2']))
-        # layer_3 = tf.nn.relu(tf.add(tf.matmul(layer_2, weights['h3']), biases['b3']))
-        # layer_4 = tf.nn.relu(tf.add(tf.matmul(layer_3, weights['h4']), biases['b4']))
-        # out_layer = tf.matmul(layer_4, weights['out']) + biases['out']
-        # return out_layer
         layer = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
         for i in range(2, self.n_hidden_layers+1):
             layer_tmp = layer
@@ -189,14 +197,18 @@ class NID:
             net = net + sum(me_nets)
 
         # Define optimizer
-        loss_op = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y,
-                                                             logits=net) if self.is_classification else tf.losses.mean_squared_error(
-            labels=self.Y, predictions=net)
-        # loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y, logits=net) if self.is_classification else tf.losses.mean_squared_error(labels=self.Y, predictions=net)
-        # loss_op = tf.losses.mean_squared_error(labels=self.Y, predictions=net)
-        # loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y,logits=net) # use this in the case of binary classification
+        # loss_op = (tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y, logits=net) if self.num_output == 2 else tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y,logits=net)) if self.is_classification else tf.losses.mean_squared_error(labels=self.Y, predictions=net)
+
         if self.is_classification:
-            loss_op = tf.reduce_mean(loss_op)
+            if self.num_output == 2:
+                loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y, logits=net) # use this in the case of binary classification
+                loss_op = tf.reduce_mean(loss_op)
+            else:
+                loss_op = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y,logits=net)
+                loss_op = tf.reduce_mean(loss_op)
+        else:
+           loss_op = tf.losses.mean_squared_error(labels=self.Y, predictions=net)
+
         sum_l1 = tf.reduce_sum([self.l1_norm(self.weights[k]) for k in self.weights])
         loss_w_reg_op = loss_op + self.l1_const * sum_l1
 
@@ -236,9 +248,6 @@ class NID:
                 else:
                     print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',
                           math.sqrt(te_mse))
-                # print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',
-                #       math.sqrt(te_mse))
-                # print('\t', 'train rmse', math.sqrt(tr_mse), 'test rmse', math.sqrt(te_mse))
                 print('\t', 'learning rate', lr)
 
         print('done')
@@ -384,12 +393,12 @@ class NID:
         print(interaction_ranking)
         print('\nPairwise Interaction Ranking')
         print(pairwise_ranking)
-        self.write_to_csv(interaction_ranking, "higher_order_ranking")
-        self.write_to_csv(pairwise_ranking, "pairwise_ranking")
+        self.write_to_csv(interaction_ranking, "\higher_order_ranking.csv")
+        self.write_to_csv(pairwise_ranking, "\pairwise_ranking.csv")
 
 
     def write_to_csv(self, interactions, name):
-        with open(name + ".csv", "w") as out:
+        with open(self.out_path + name , 'w') as out:
             csv_out = csv.writer(out, lineterminator='\n')
             csv_out.writerow(['Features', 'Strength'])
             for row in interactions:
