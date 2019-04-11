@@ -10,7 +10,6 @@ from sklearn.model_selection import train_test_split, KFold
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_auc_score
 
 
 class NID:
@@ -190,8 +189,6 @@ class NID:
             net = net + sum(me_nets)
 
         # Define optimizer
-        # loss_op = (tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y, logits=net) if self.num_output == 2 else tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y,logits=net)) if self.is_classification else tf.losses.mean_squared_error(labels=self.Y, predictions=net)
-
         if self.is_classification:
             if self.num_output == 2:
                 loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y, logits=net) # use this in the case of binary classification
@@ -217,10 +214,7 @@ class NID:
         config.gpu_options.per_process_gpu_memory_fraction = 0.25
         config.gpu_options.allow_growth = True
         sess = tf.Session(config=config)
-        # init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-        # sess.run(init)
         sess.run(tf.global_variables_initializer())
-        # sess.run(tf.local_variables_initializer())
 
         print('Initialized')
 
@@ -240,34 +234,24 @@ class NID:
                     # Test model
                     pred = tf.nn.sigmoid(net) if self.num_output == 2 else tf.nn.softmax(net)# Apply softmax to logits
                     correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(self.Y, 1))
+
                     # Calculate accuracy
                     accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
                     print('\t', 'train acc', accuracy.eval(feed_dict={self.X: tr_x, self.Y: tr_y},session=sess), 'val acc', accuracy.eval(feed_dict={self.X: va_x, self.Y: va_y},session=sess), 'test acc', accuracy.eval(feed_dict={self.X: te_x, self.Y: te_y},session=sess))
 
                     #auc
                     auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
-                    acc, acc_op = tf.metrics.accuracy(labels=tf.argmax(self.Y,1), predictions=tf.argmax(pred,1))
+                    # acc, acc_op = tf.metrics.accuracy(labels=tf.argmax(self.Y,1), predictions=tf.argmax(pred,1))
                     sess.run(tf.local_variables_initializer())
 
-                    v = sess.run([auc, auc_op], feed_dict={self.X: tr_x,
-                                                           self.Y: tr_y})
-                    print('auc tr:', v)
+                    # v = sess.run([auc, auc_op], feed_dict={self.X: tr_x,self.Y: tr_y})
+                    # print('auc tr:', v)
+                    # v = sess.run([auc, auc_op], feed_dict={self.X: va_x,self.Y: va_y})
+                    # print('auc va:',v)
+                    # v = sess.run([auc, auc_op], feed_dict={self.X: te_x,self.Y: te_y})
+                    # print('auc te:', v)
 
-                    r = sess.run([acc, acc_op], feed_dict={self.X: tr_x,
-                                                           self.Y: tr_y})
-                    print('acc tr:', r)
-
-                    v = sess.run([auc, auc_op], feed_dict={self.X: va_x,
-                                                           self.Y: va_y})
-                    print('auc va:',v)
-
-                    r = sess.run([acc, acc_op], feed_dict={self.X: va_x,
-                                                           self.Y: va_y})
-                    print('acc va:', r)
-
-                    v = sess.run([auc, auc_op], feed_dict={self.X: te_x,
-                                                           self.Y: te_y})
-                    print('auc te:', v)
+                    print('\t', 'train auc', sess.run([auc, auc_op], feed_dict={self.X: tr_x,self.Y: tr_y})[1],'val auc',  sess.run([auc, auc_op], feed_dict={self.X: va_x,self.Y: va_y})[1], 'test auc', sess.run([auc, auc_op], feed_dict={self.X: te_x, self.Y: te_y})[1])
                     print('\t', 'learning rate', lr)
                 else:
                     tr_mse = sess.run(loss_op, feed_dict={self.X: tr_x, self.Y: tr_y})
