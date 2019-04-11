@@ -10,35 +10,20 @@ from sklearn.model_selection import train_test_split, KFold
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-import plotly.plotly as py
-import plotly.graph_objs as go
+from sklearn.metrics import roc_auc_score
+
 
 class NID:
     # Just disables the warning, doesn't enable AVX/FMA
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-    # # DataSet Parameters
-    # file_name = "datasets\letter-recognition.csv"
-    # # file_name = "datasets\Breast_cancer_wisconsin.csv"
-    # header = False
-    # index = False
-    # use_main_effect_nets = True  # toggle this to use "main effect" nets
-    # heatmap_name = "heat_maps\out_gen.png"
-    # out_path = ''
-    # Network Parameters
     learning_rate = 0.01
     num_epochs = 200
     batch_size = 100
     l1_const = 5e-5
+    l2_const = 1e-4
     n_hidden_uni = 10
-    # df, num_samples, num_input, num_output = '','','',''
     global_pairwise_strengths = {}
     global_interaction_strengths = {}
-    # n_hidden_layers = 4
-    # hidden_layers = [140, 100, 60, 20]
-
-    # tf Graph input
-    # X = tf.placeholder("float", [None, num_input])
-    # Y = tf.placeholder("float", [None, num_output])
 
     # Random seeds
     tf.set_random_seed(0)
@@ -52,32 +37,29 @@ class NID:
         self.out_path = output_path
         self.hidden_layers = hidden_layers_structure
         self.n_hidden_layers = len(hidden_layers_structure)
+        #output
         self.heatmap_name=self.out_path+"\pairwise_heatmap.png"
+        self.pairwise_out_name = self.out_path + "\pairwise_ranking.csv"
+        self.higher_order_out_name = self.out_path + "\higher_order_ranking.csv"
         # set params
         self.is_classification = is_classification_data
         self.df, self.num_samples, self.num_input, self.num_output = self.read_csv()
-
         self.X = tf.placeholder("float", [None, self.num_input])
         self.Y = tf.placeholder("float", [None, self.num_output])
         # access weights & biases
         self.weights = self.create_weights()
         self.biases = self.create_biases()
 
-    def num_rows_csv(self):
-        with open(self.file_name) as f:
-            rows = sum(1 for line in f)-1 if self.header else sum(1 for line in f)
-        return rows
-
     def read_csv(self):
         df = pd.read_csv(self.file_name) if self.header else pd.read_csv(self.file_name, header=None)
         df = df.drop(df.columns[[0]], axis=1) if self.index else df #without the index column
-        df = self.preprocessing(df)
+        df = self.preprocess_df(df)
         num_samples = df.shape[0]
         num_input = df.shape[1]-1 #without the target column
         num_out = df[df.columns[-1]].nunique() if self.is_classification else 1
         return df,num_samples,num_input,num_out
 
-    def preprocessing(self, df):
+    def preprocess_df(self, df):
         range = df.shape[1]-1 if self.is_classification else df.shape[1]
         for y in df.columns[0:range]:
             if (df[y].dtype == np.int32 or df[y].dtype == np.int64 or df[y].dtype == np.float32):
@@ -113,6 +95,7 @@ class NID:
     def prepare_data(self, train, test, X_full, Y_full):
         tr_x, te_x, tr_y, te_y = X_full[train], X_full[test], Y_full[train], Y_full[test]
         te_x, va_x, te_y, va_y = train_test_split(te_x, te_y, test_size = 0.5)
+        # tr_x, va_x, tr_y, va_y = train_test_split(tr_x, tr_y, test_size=0.5)
         scaler_x = StandardScaler()
         scaler_x.fit(tr_x)
         tr_x, te_x, va_x = scaler_x.transform(tr_x), scaler_x.transform(te_x), scaler_x.transform(va_x)
@@ -179,14 +162,24 @@ class NID:
         out_layer = tf.matmul(layer_3, weights['out'])
         return out_layer
 
+    def individual_univariate_net(self, x, weights, biases):
+        layer_1 = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
+        layer_2 = tf.nn.relu(tf.add(tf.matmul(layer_1, weights['h2']), biases['b2']))
+        layer_3 = tf.nn.relu(tf.add(tf.matmul(layer_2, weights['h3']), biases['b3']))
+        out_layer = tf.matmul(layer_3, weights['out'])
+        return out_layer
+
     # L1 regularizer
     def l1_norm(self, a): return tf.reduce_sum(tf.abs(a))
+
+    # L2 regularizer
+    def l2_norm(self, a):
+        return tf.reduce_sum(tf.pow(a, 2))
 
     # Construct the model
     def construct_model(self, tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size):
         # Construct model
         net = self.normal_neural_net(self.X, self.weights, self.biases)
-        # net = 0
         # check main effects need
         if self.use_main_effect_nets:
             me_nets = []
@@ -224,7 +217,10 @@ class NID:
         config.gpu_options.per_process_gpu_memory_fraction = 0.25
         config.gpu_options.allow_growth = True
         sess = tf.Session(config=config)
+        # init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+        # sess.run(init)
         sess.run(tf.global_variables_initializer())
+        # sess.run(tf.local_variables_initializer())
 
         print('Initialized')
 
@@ -239,16 +235,48 @@ class NID:
                 _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
 
             if (epoch + 1) % 50 == 0:
-                tr_mse = sess.run(loss_op, feed_dict={self.X: tr_x, self.Y: tr_y})
-                va_mse = sess.run(loss_op, feed_dict={self.X: va_x, self.Y: va_y})
-                te_mse = sess.run(loss_op, feed_dict={self.X: te_x, self.Y: te_y})
-                print('Epoch', epoch + 1)
                 if self.is_classification:
-                    print('\t', 'train rmse', tr_mse, 'val rmse', va_mse, 'test rmse', te_mse)
+                    print('Epoch', epoch + 1)
+                    # Test model
+                    pred = tf.nn.sigmoid(net) if self.num_output == 2 else tf.nn.softmax(net)# Apply softmax to logits
+                    correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(self.Y, 1))
+                    # Calculate accuracy
+                    accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+                    print('\t', 'train acc', accuracy.eval(feed_dict={self.X: tr_x, self.Y: tr_y},session=sess), 'val acc', accuracy.eval(feed_dict={self.X: va_x, self.Y: va_y},session=sess), 'test acc', accuracy.eval(feed_dict={self.X: te_x, self.Y: te_y},session=sess))
+
+                    #auc
+                    auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
+                    acc, acc_op = tf.metrics.accuracy(labels=tf.argmax(self.Y,1), predictions=tf.argmax(pred,1))
+                    sess.run(tf.local_variables_initializer())
+
+                    v = sess.run([auc, auc_op], feed_dict={self.X: tr_x,
+                                                           self.Y: tr_y})
+                    print('auc tr:', v)
+
+                    r = sess.run([acc, acc_op], feed_dict={self.X: tr_x,
+                                                           self.Y: tr_y})
+                    print('acc tr:', r)
+
+                    v = sess.run([auc, auc_op], feed_dict={self.X: va_x,
+                                                           self.Y: va_y})
+                    print('auc va:',v)
+
+                    r = sess.run([acc, acc_op], feed_dict={self.X: va_x,
+                                                           self.Y: va_y})
+                    print('acc va:', r)
+
+                    v = sess.run([auc, auc_op], feed_dict={self.X: te_x,
+                                                           self.Y: te_y})
+                    print('auc te:', v)
+                    print('\t', 'learning rate', lr)
                 else:
+                    tr_mse = sess.run(loss_op, feed_dict={self.X: tr_x, self.Y: tr_y})
+                    va_mse = sess.run(loss_op, feed_dict={self.X: va_x, self.Y: va_y})
+                    te_mse = sess.run(loss_op, feed_dict={self.X: te_x, self.Y: te_y})
+                    print('Epoch', epoch + 1)
                     print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',
                           math.sqrt(te_mse))
-                print('\t', 'learning rate', lr)
+                    print('\t', 'learning rate', lr)
 
         print('done')
         return sess
@@ -293,7 +321,7 @@ class NID:
         interaction_ranking_pruned = []
         existing_largest = []
         for i, inter in enumerate(interaction_sorted):
-            if len(interaction_ranking_pruned) > 20000: break
+            if len(interaction_ranking_pruned) > 20000 : break
             skip = False
             indices_to_remove = set()
             for inter2_i, inter2 in enumerate(existing_largest):
@@ -355,14 +383,18 @@ class NID:
             a = pair[0]
             b = pair[1]
             pairwise_2d[b - 1][a - 1] = cab
-        sns.set()
+            # pairwise_2d[a - 1][b - 1] = cab
+        # sns.set()
         heatmap_df = pd.DataFrame(np.array(pairwise_2d))
         heatmap_df.index += 1
         heatmap_df.columns += 1
-        ax = sns.heatmap(heatmap_df, cmap='Blues')
+        #print heatmap
+        sns.set()
+        ax = sns.heatmap(heatmap_df, cmap='Blues',cbar_kws={"shrink": .5})
         if os.path.isfile(self.heatmap_name):
-            os.remove(self.heatmap_name) # Opt.: os.system("rm "+strFile)
+            os.remove(self.heatmap_name)
         plt.savefig(self.heatmap_name)
+        # plt.show()
 
 
     def interpret_weights(self, sess):
@@ -388,17 +420,17 @@ class NID:
 
         interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1), reverse=True)
 
-        print('\nFinal results:\n##############')
+        print('\nFinal results:','\n##############')
         print('\nHigher-Order Interaction Ranking')
         print(interaction_ranking)
         print('\nPairwise Interaction Ranking')
         print(pairwise_ranking)
-        self.write_to_csv(interaction_ranking, "\higher_order_ranking.csv")
-        self.write_to_csv(pairwise_ranking, "\pairwise_ranking.csv")
+        self.write_to_csv(interaction_ranking, self.higher_order_out_name)
+        self.write_to_csv(pairwise_ranking, self.pairwise_out_name)
 
 
     def write_to_csv(self, interactions, name):
-        with open(self.out_path + name , 'w') as out:
+        with open(name , 'w') as out:
             csv_out = csv.writer(out, lineterminator='\n')
             csv_out.writerow(['Features', 'Strength'])
             for row in interactions:

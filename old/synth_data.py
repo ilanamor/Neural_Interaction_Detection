@@ -51,14 +51,25 @@ np.random.seed(0) #With the seed reset (every time), the same set of numbers wil
 
 # Interaction data generator
 def synth_func(x):
-    interaction1 = np.exp(np.fabs(x[:,0]-x[:,1]))
-    interaction2 = np.fabs(x[:,1]*x[:,2])
-    interaction3 = -1*np.power(np.power(x[:,2],2),np.fabs(x[:,3]))
-    interaction4 = np.power(x[:,0]*x[:,3],2)
-    interaction5 = np.log(np.power(x[:,3],2) + np.power(x[:,4],2) + np.power(x[:,6],2) + np.power(x[:,7],2))
-    main_effects = x[:,8] + 1/(1+np.power(x[:,9],2))
+    # interaction1 = np.exp(np.fabs(x[:,0]-x[:,1]))
+    # interaction2 = np.fabs(x[:,1]*x[:,2])
+    # interaction3 = -1*np.power(np.power(x[:,2],2),np.fabs(x[:,3]))
+    # interaction4 = np.power(x[:,0]*x[:,3],2)
+    # interaction5 = np.log(np.power(x[:,3],2) + np.power(x[:,4],2) + np.power(x[:,6],2) + np.power(x[:,7],2))
+    # main_effects = x[:,8] + 1/(1+np.power(x[:,9],2))
 
-    y =         interaction1 + interaction2 + interaction3 + interaction4 + interaction5 + main_effects
+    # interaction1 = 1/(1+np.power(x[:,0],2)+np.power(x[:,1],2)+np.power(x[:,2],2))
+    # interaction2 = np.power(np.exp(x[:, 3] + x[:, 4]), 0.5)
+    # interaction3 = np.fabs(x[:,5]+x[:,6])
+    # interaction4 = x[:,7]*x[:,8]*x[:,9]
+
+    interaction1 = np.sinh(x[:,0]+x[:,1])
+    interaction2 = np.arccos(np.tanh(x[:,2]+x[:,4]+x[:,6]))
+    interaction3 = np.cos(x[:,3]+x[:,4])
+    interaction4 = 1/np.cos(x[:,6]*x[:,8])
+
+
+    y =         interaction1 + interaction2 + interaction3 + interaction4
     #ground truth:  {1,2}         {2,3}          {3,4}          {1,4}        {4,5,7,8}
     return y
 
@@ -69,7 +80,13 @@ def synth_func(x):
 def gen_synth_data():
 
     global df, tg_index
-    sync_random = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
+    # sync_random = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
+    X = np.random.uniform(low=-1, high=1, size=(num_samples, 10))
+    Y = np.expand_dims(synth_func(X), axis=1)
+
+    np_array = np.concatenate((X, Y), axis=1)
+    df = pd.DataFrame(np_array)
+    df.to_csv("synthetic_f10.csv", header=False, index=False)
     # X = df.drop(df.columns[[tg_index]], axis=1).values
     # Y = np.expand_dims(df.iloc[:, tg_index].values, axis=1)
 
