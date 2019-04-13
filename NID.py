@@ -79,9 +79,11 @@ class NID:
             tr_size = tr_x.shape[0]
             sess = self.construct_model(tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size)
             self.interpret_weights(sess)
+            self.average_results()
+            self.create_heat_map()
+            print(self.construct_cutoff(te_x, te_y, va_x, va_y, va_x.shape[0], self.va_error))
             break
-        self.average_results()
-        self.create_heat_map()
+
 
     # Prepare the df - create X,Y
     def prepare_df(self):
@@ -126,9 +128,9 @@ class NID:
         return biases
 
     # Uninets for main effects - weights
-    def get_weights_uninet(self):
+    def get_weights_uninet(self, input):
         weights = {
-            'h1': tf.Variable(tf.truncated_normal([1, self.n_hidden_uni], 0, 0.1)),
+            'h1': tf.Variable(tf.truncated_normal([input, self.n_hidden_uni], 0, 0.1)),
             'h2': tf.Variable(tf.truncated_normal([self.n_hidden_uni, self.n_hidden_uni], 0, 0.1)),
             'h3': tf.Variable(tf.truncated_normal([self.n_hidden_uni, self.n_hidden_uni], 0, 0.1)),
             'out': tf.Variable(tf.truncated_normal([self.n_hidden_uni, self.num_output], 0, 0.1))
@@ -154,13 +156,6 @@ class NID:
         return out_layer
 
 
-    def main_effect_net(self, x, weights, biases):
-        layer_1 = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
-        layer_2 = tf.nn.relu(tf.add(tf.matmul(layer_1, weights['h2']), biases['b2']))
-        layer_3 = tf.nn.relu(tf.add(tf.matmul(layer_2, weights['h3']), biases['b3']))
-        out_layer = tf.matmul(layer_3, weights['out'])
-        return out_layer
-
     def individual_univariate_net(self, x, weights, biases):
         layer_1 = tf.nn.relu(tf.add(tf.matmul(x, weights['h1']), biases['b1']))
         layer_2 = tf.nn.relu(tf.add(tf.matmul(layer_1, weights['h2']), biases['b2']))
@@ -183,7 +178,7 @@ class NID:
         if self.use_main_effect_nets:
             me_nets = []
             for x_i in range(self.num_input):
-                me_net = self.main_effect_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(),
+                me_net = self.individual_univariate_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(1),
                                               self.get_biases_uninet())
                 me_nets.append(me_net)
             net = net + sum(me_nets)
@@ -244,15 +239,13 @@ class NID:
                     # acc, acc_op = tf.metrics.accuracy(labels=tf.argmax(self.Y,1), predictions=tf.argmax(pred,1))
                     sess.run(tf.local_variables_initializer())
 
-                    # v = sess.run([auc, auc_op], feed_dict={self.X: tr_x,self.Y: tr_y})
-                    # print('auc tr:', v)
-                    # v = sess.run([auc, auc_op], feed_dict={self.X: va_x,self.Y: va_y})
-                    # print('auc va:',v)
-                    # v = sess.run([auc, auc_op], feed_dict={self.X: te_x,self.Y: te_y})
-                    # print('auc te:', v)
+                    tr_auc = sess.run([auc, auc_op], feed_dict={self.X: tr_x,self.Y: tr_y})[1]
+                    va_auc = sess.run([auc, auc_op], feed_dict={self.X: va_x,self.Y: va_y})[1]
+                    te_auc= sess.run([auc, auc_op], feed_dict={self.X: te_x,self.Y: te_y})[1]
 
-                    print('\t', 'train auc', sess.run([auc, auc_op], feed_dict={self.X: tr_x,self.Y: tr_y})[1],'val auc',  sess.run([auc, auc_op], feed_dict={self.X: va_x,self.Y: va_y})[1], 'test auc', sess.run([auc, auc_op], feed_dict={self.X: te_x, self.Y: te_y})[1])
+                    print('\t', 'train auc', tr_auc,'val auc',  va_auc, 'test auc', te_auc)
                     print('\t', 'learning rate', lr)
+                    self.va_error = 1-va_auc
                 else:
                     tr_mse = sess.run(loss_op, feed_dict={self.X: tr_x, self.Y: tr_y})
                     va_mse = sess.run(loss_op, feed_dict={self.X: va_x, self.Y: va_y})
@@ -261,10 +254,110 @@ class NID:
                     print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',
                           math.sqrt(te_mse))
                     print('\t', 'learning rate', lr)
+                    self.va_error=math.sqrt(va_mse)
 
         print('done')
         return sess
 
+    def run_network(self, net, size, x_d, y_d):
+        # Define optimizer
+        if self.is_classification:
+            if self.num_output == 2:
+                loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y,logits=net)  # use this in the case of binary classification
+                loss_op = tf.reduce_mean(loss_op)
+            else:
+                loss_op = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y, logits=net)
+                loss_op = tf.reduce_mean(loss_op)
+        else:
+            loss_op = tf.losses.mean_squared_error(labels=self.Y, predictions=net)
+
+        sum_l2 = tf.reduce_sum([self.l2_norm(self.weights[k]) for k in self.weights])
+        loss_w_reg_op = loss_op + self.l2_const * sum_l2
+
+        batch = tf.Variable(0)
+        decaying_learning_rate = tf.train.exponential_decay(self.learning_rate, batch * self.batch_size, size, 0.95, staircase=True)
+        optimizer = tf.train.AdamOptimizer(learning_rate=decaying_learning_rate).minimize(loss_w_reg_op, global_step=batch)
+
+        # init = tf.global_variables_initializer()
+        n_batches = size // self.batch_size
+        config = tf.ConfigProto()
+        config.gpu_options.per_process_gpu_memory_fraction = 0.25
+        config.gpu_options.allow_growth = True
+        sess = tf.Session(config=config)
+        sess.run(tf.global_variables_initializer())
+
+        print('Initialized')
+
+        error_net = 0
+        for epoch in range(self.num_epochs):
+
+            batch_order = list(range(n_batches))
+            np.random.shuffle(batch_order)
+
+            for i in batch_order:
+                batch_x = x_d[i * self.batch_size:(i + 1) * self.batch_size]
+                batch_y = y_d[i * self.batch_size:(i + 1) * self.batch_size]
+                _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
+
+            if (epoch + 1) % 50 == 0:
+                if self.is_classification:
+                    print('Epoch', epoch + 1)
+                    # Test model
+                    pred = tf.nn.sigmoid(net) if self.num_output == 2 else tf.nn.softmax(net)  # Apply softmax to logits
+                    correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(self.Y, 1))
+
+                    # Calculate accuracy
+                    accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+                    print('\t', 'acc', accuracy.eval(feed_dict={self.X: x_d, self.Y: y_d}, session=sess))
+
+                    # auc
+                    auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
+                    sess.run(tf.local_variables_initializer())
+                    error = sess.run([auc, auc_op], feed_dict={self.X: x_d, self.Y: y_d})[1]
+                    print('\t', 'auc', error)
+                    print('\t', 'learning rate', lr)
+                    error_net = 1-error
+                else:
+                    mse = sess.run(loss_op, feed_dict={self.X: x_d, self.Y: y_d})
+                    print('Epoch', epoch + 1)
+                    rmse =  math.sqrt(mse)
+                    print('\t', 'rmse', rmse)
+                    print('\t', 'learning rate', lr)
+                    error_net = rmse
+        return error_net
+
+    def get_specific_data(self,interaction):
+        features = []
+        for feature in interaction:
+            features.append(tf.expand_dims(self.X[:, feature-1],1))
+        return tf.concat(features,1)
+
+    # Construct the model
+    def construct_cutoff(self, te_x, te_y, va_x, va_y, size, cutoff):
+
+        interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1),reverse=True)
+
+        # main effects need
+        me_nets = []
+        for x_i in range(self.num_input):
+            me_net = self.individual_univariate_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(1),
+                                          self.get_biases_uninet())
+            me_nets.append(me_net)
+        net = sum(me_nets)
+
+        err = self.run_network(net, size, va_x, va_y)
+        k = 0
+
+        for interaction in interaction_ranking:
+            if err>cutoff:
+                print(interaction)
+                features = self.get_specific_data(interaction[0])
+                net = net + self.individual_univariate_net(features, self.get_weights_uninet(len(interaction[0])),self.get_biases_uninet())
+                err = self.run_network(net, size, va_x, va_y)
+                k += 1
+            else:
+                break
+        return k, err
 
     def preprocess_weights(self, w_dict):
         hidden_layers = [int(layer[1:]) for layer in w_dict.keys() if layer.startswith('h')]
