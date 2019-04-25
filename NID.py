@@ -59,13 +59,7 @@ class NID:
         self.higher_order_out_name = self.out_path + "/higher_order_ranking.csv"
         # set params
         self.is_classification = is_classification_data
-
         self.df, self.num_samples, self.num_input, self.num_output = self.read_csv()
-        self.X = tf.placeholder("float", [None, self.num_input])
-        self.Y = tf.placeholder("float", [None, self.num_output])
-        # access weights & biases
-        self.weights = self.create_weights()
-        self.biases = self.create_biases()
         self.va_error = 0
 
 
@@ -114,6 +108,11 @@ class NID:
         X_full,Y_full = self.prepare_df()
         kfold = KFold(n_splits=self.k_fold, random_state=None, shuffle=False)
         for train, test in kfold.split(X_full):
+            self.X = tf.placeholder("float", [None, self.num_input])
+            self.Y = tf.placeholder("float", [None, self.num_output])
+            # access weights & biases
+            self.weights = self.create_weights()
+            self.biases = self.create_biases()
             tr_x, te_x, tr_y, te_y, va_x, va_y = self.prepare_data(train,test,X_full,Y_full)
             tr_size = tr_x.shape[0]
             # sess = self.construct_model(tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size)
@@ -122,7 +121,12 @@ class NID:
         self.average_results()
 
         if self.use_cutoff:
-            self.k, err = self.construct_cutoff(te_x, te_y, va_x, va_y, va_x.shape[0], self.va_error)
+            self.X = tf.placeholder("float", [None, self.num_input])
+            self.Y = tf.placeholder("float", [None, self.num_output])
+            # access weights & biases
+            self.weights = self.create_weights()
+            self.biases = self.create_biases()
+            self.k, err = self.construct_cutoff(tr_x, tr_y, va_x, va_y, va_x.shape[0], self.va_error)
             print(self.k, err)
 
         self.final_results()
@@ -310,7 +314,7 @@ class NID:
         # return sess
 
     # Construct the cutoff model
-    def construct_cutoff(self, te_x, te_y, va_x, va_y, size, cutoff):
+    def construct_cutoff(self, tr_x, tr_y, va_x, va_y, size, cutoff):
         # self.X = tf.placeholder("float", [None, self.num_input])
         # self.Y = tf.placeholder("float", [None, self.num_output])
         # # access weights & biases
@@ -318,14 +322,6 @@ class NID:
         # self.biases = self.create_biases()
 
         interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1),reverse=True)
-
-        # main effects need
-        # net = 0
-        # me_nets = []
-        # for x_i in range(self.num_input):
-        #     me_net = self.individual_univariate_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(1),
-        #                                             self.get_biases_uninet())
-        #     me_nets.append(me_net)
         net = self.main_effects_nets
 
         err = self.run_network(net, size, va_x, va_y, self.l2_norm, self.l2_const)
