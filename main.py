@@ -1,4 +1,5 @@
 import numbers
+import os
 import sys
 import tkinter as tk
 from tkinter import filedialog
@@ -13,23 +14,26 @@ class main:
         try:
             value = int(entry.get())
             if(value<2):
-                tk.messagebox.showerror("wrong params", entry_name + " must be bigger then 1!")
+                tk.messagebox.showerror("wrong params", entry_name + " must be greater than 1!")
                 return 1;
         except ValueError:
-            tk.messagebox.showerror("wrong params", entry_name+" must be number!")
+            tk.messagebox.showerror("wrong params", entry_name +" must be a number!")
             return 1;
 
     def check_empty_string(self, entry, entry_name):
         if (entry.get() == ""):
-            tk.messagebox.showinfo("fill params", "insert " + entry_name)
+            tk.messagebox.showinfo("fill params", "Insert " + entry_name)
             return 1;
 
     def start(self):
         if (not self.file_path):
-            tk.messagebox .showinfo("fill params", "insert a file path")
+            tk.messagebox.showinfo("fill params", "Insert a file path")
+            return
+        if(not os.path.getsize(self.file_path) > 0):
+            tk.messagebox.showinfo("wrong params", "Selected file is empty, please choose again")
             return
         if (not self.out_path):
-            tk.messagebox .showinfo("fill params", "insert a directory path to output file")
+            tk.messagebox.showinfo("fill params", "Insert a directory path to output file")
             return
         if (self.check_empty_string(self.units_arr_entry,'a network structure') ==1):
             return
@@ -40,15 +44,33 @@ class main:
         if (self.check_empty_string(self.batch_size_entry, 'batch size') == 1 or self.check_is_number(self.batch_size_entry, 'batch size')==1):
             return
         if (self.is_regression_col.get() == 0 and self.is_classification_col.get() == 0):
-            tk.messagebox.showinfo("fill params", "choose regression or classification")
+            tk.messagebox.showinfo("fill params", "Choose regression or classification")
+            return
+        if (self.mlp.get() == 0 and self.mlpm.get() == 0 and self.mlp_cutoff.get() == 0):
+            tk.messagebox.showinfo("fill params", "Choose MLP or MLP-M or MLP-Cutoff")
             return
 
         try:
             units_list = list(map(int, self.units_arr_entry.get().split(',')))
         except ValueError:
-            tk.messagebox.showerror("wrong params", "network structure must be numbers separated by comma")
+            tk.messagebox.showinfo("wrong params", "network structure must be numbers separated by comma")
             return
-        nid = NID(int(self.use_main_effect_nets.get()), int(self.is_index_col.get()), int(self.is_header.get()), self.file_path, self.out_path, units_list, self.is_classification_col.get(),int(self.k_fold_entry.get()),int(self.num_epochs_entry.get()), int(self.batch_size_entry.get()))
+
+        try:
+            nid = NID(self.use_main_effect_nets, self.use_cutoff, int(self.is_index_col.get()), int(self.is_header.get()),
+                      self.file_path, self.out_path, units_list, self.is_classification_col.get(),
+                      int(self.k_fold_entry.get()), int(self.num_epochs_entry.get()), int(self.batch_size_entry.get()))
+        except ValueError as err:
+            if err.args[0] == 'Empty file input':
+                tk.messagebox.showinfo("wrong params", "Selected file is empty, please choose again")
+            elif err.args[0] == 'Mismatch between K-folds and dataset':
+                tk.messagebox.showinfo("wrong params", "Mismatch between K-folds and dataset")
+            elif err.args[0] == 'Incompatible dataset type and target type':
+                tk.messagebox.showinfo("wrong params", "Incompatible dataset type and target type")
+            else:
+                tk.messagebox.showinfo("error", "Something went wrong, please try again")
+            return
+
         nid.run()
         print('\nend')
         sys.exit()
@@ -56,7 +78,7 @@ class main:
 
     def __init__(self,master):
         self.master = master
-        master.geometry("450x370")
+        master.geometry("480x400")
         master.title("NID framework")
 
 
@@ -89,7 +111,7 @@ class main:
         self.units_arr_entry.insert(0, '140,100,60,20')
 
         #k-fold
-        self.k_fold_label = tk.Label ( master,  text="k-fold:" )
+        self.k_fold_label = tk.Label(master,  text="k-fold:" )
         self.k_fold_entry = tk.Entry(master, width=5)
         self.k_fold_label.place(x=10, y=160)
         self.k_fold_entry.place(x=55, y=160)
@@ -109,30 +131,23 @@ class main:
         self.batch_size_entry.place(x=370, y=160)
         self.batch_size_entry.insert(0, '100')
 
-        # use_main_effect_nets
-        self.use_main_effect_nets = tk.IntVar()
-        self.use_main_effect_nets_entry = tk.Checkbutton(master, text="use main effects",
-                                                         variable=self.use_main_effect_nets, width=15)
-        self.use_main_effect_nets_entry.pack()
-        self.use_main_effect_nets_entry.place(x=10, y=200)
-
         # has header
         self.is_header = tk.IntVar()
         self.is_header_entry = tk.Checkbutton(master, text="header", variable=self.is_header, width=10)
-        self.is_header_entry.pack()
-        self.is_header_entry.place(x=160, y=200)
+        self.is_header_entry.pack(side=tk.LEFT, anchor=tk.W)
+        self.is_header_entry.place(x=10, y=200)
 
         # index column
         self.is_index_col = tk.IntVar()
         self.is_index_col_entry = tk.Checkbutton(master, text="index", variable=self.is_index_col, width=10)
-        self.is_index_col_entry.pack()
-        self.is_index_col_entry.place(x=310, y=200)
+        self.is_index_col_entry.pack(side=tk.LEFT, anchor=tk.W)
+        self.is_index_col_entry.place(x=160, y=200)
 
         # regression
         self.is_regression_col = tk.IntVar()
         self.is_regression_entry = tk.Checkbutton(master, text="regression", variable=self.is_regression_col, width=10,
                                                   command=self.regression_clicked)
-        self.is_regression_entry.pack()
+        self.is_regression_entry.pack(side=tk.LEFT, anchor=tk.W)
         self.is_regression_entry.place(x=10, y=240)
 
         # classification
@@ -140,34 +155,33 @@ class main:
         self.is_classification_entry = tk.Checkbutton(master, text="classification",
                                                       variable=self.is_classification_col, width=10,
                                                       command=self.classification_clicked)
-        self.is_classification_entry.pack()
+        self.is_classification_entry.pack(side=tk.LEFT, anchor=tk.W)
         self.is_classification_entry.place(x=160, y=240)
+
+        # MLP
+        self.mlp = tk.IntVar()
+        self.mlp_entry = tk.Checkbutton(master, text="MLP",variable=self.mlp, width=10, command=self.mlp_clicked)
+        self.mlp_entry.pack(side=tk.LEFT, anchor=tk.W)
+        self.mlp_entry.place(x=10, y=280)
+
+        # MLP-M
+        self.mlpm = tk.IntVar()
+        self.mlpm_entry = tk.Checkbutton(master, text="MLP-M",
+                                                         variable=self.mlpm, width=10, command=self.mlpm_clicked)
+        self.mlpm_entry.pack(side=tk.LEFT, anchor=tk.W)
+        self.mlpm_entry.place(x=160, y=280)
+
+        # MLP-Cutoff
+        self.mlp_cutoff = tk.IntVar()
+        self.mlp_cutoff_entry = tk.Checkbutton(master, text="MLP-Cutoff",
+                                                         variable=self.mlp_cutoff, width=10, command=self.mlp_cutoff_clicked)
+        self.mlp_cutoff_entry.pack(side=tk.LEFT, anchor=tk.W)
+        self.mlp_cutoff_entry.place(x=310, y=280)
 
         # start
         self.submit_button = tk.Button(master, text="start", width=20, command=self.start)
         self.submit_button.pack()
-        self.submit_button.place(x=150, y=300)
-
-        #number_of_hide_unit
-        # self.number_of_hide_unit_label = tk.Label(master, text="number of hide units:")
-        # self.number_of_hide_unit = tk.Entry(master, width=40)
-        # self.number_of_hide_unit_label.place(x=10, y=200)
-        # self.number_of_hide_unit.place(x=150, y=200)
-
-
-
-        #number_of_hide_unit
-        # self.number_of_hide_unit_label = tk.Label(master, text="number of hide unit")
-        # self.number_of_hide_unit = tk.Entry(master, width=40)
-        # self.number_of_hide_unit_label.place(x=10, y=240)
-        # self.number_of_hide_unit.place(x=150, y=240)
-
-        #class_index
-        # self.class_index_label = tk.Label(master, text="class index:")
-        # self.class_index = tk.Entry(master, width=40)
-        # self.class_index_label.place(x=10, y=280)
-        # self.class_index.place(x=100, y=280)
-
+        self.submit_button.place(x=150, y=340)
 
 
     def regression_clicked(self):
@@ -182,6 +196,37 @@ class main:
         else:
             self.is_regression_entry.config(state="disable")
 
+    def mlp_clicked(self):
+        if self.mlp.get() == 0:
+            self.mlpm_entry.config(state="normal")
+            self.mlp_cutoff_entry.config(state="normal")
+        else:
+            self.mlpm_entry.config(state="disable")
+            self.mlp_cutoff_entry.config(state="disable")
+            self.use_main_effect_nets = False
+            self.use_cutoff = False
+
+    def mlpm_clicked(self):
+        if self.mlpm.get() == 0:
+            self.mlp_entry.config(state="normal")
+            self.mlp_cutoff_entry.config(state="normal")
+        else:
+            self.mlp_entry.config(state="disable")
+            self.mlp_cutoff_entry.config(state="disable")
+            self.use_main_effect_nets = True
+            self.use_cutoff = False
+
+    def mlp_cutoff_clicked(self):
+        if self.mlp_cutoff.get() == 0:
+            self.mlp_entry.config(state="normal")
+            self.mlpm_entry.config(state="normal")
+        else:
+            self.mlp_entry.config(state="disable")
+            self.mlpm_entry.config(state="disable")
+            self.use_main_effect_nets = True
+            self.use_cutoff = True
+
+
     def choosefile(self):
         self.file_path = tk.filedialog.askopenfilename()
         self.entryPath.delete(0, tk.END)
@@ -192,7 +237,7 @@ class main:
             return
 
         if (not (self.file_path[-4:] == ".csv")):
-            tk.messagebox .showerror("fill params", "insert an csv file")
+            tk.messagebox .showerror("fill params", "insert a csv file")
             return
 
         # if self.df.empty:

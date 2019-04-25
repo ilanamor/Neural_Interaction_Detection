@@ -16,8 +16,6 @@ class NID:
     # Just disables the warning, doesn't enable AVX/FMA
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     learning_rate = 0.01
-    num_epochs = 200
-    batch_size = 100
     l1_const = 5e-5
     l2_const = 1e-4
     n_hidden_uni = 10
@@ -28,26 +26,48 @@ class NID:
     tf.set_random_seed(0)
     np.random.seed(0)
 
-    def __init__(self, main_effects, is_index, is_header, file_path, output_path, hidden_layers_structure, is_classification_data):
-        self.use_main_effect_nets = True if main_effects == 1 else False
+    '''input params, init format:
+    use_main_effect_nets - whether use main effects or not (true / false)
+    use_cutoff - whether use cutoff or not (true / false)
+    is_index_col - is index column exists (1 true / 0 false)
+    is_header - is header exists (1 true / 0 false)
+    file_path - full path
+    out_path - full path
+    units_list - network architecture (list of numbers seperate by comma)
+    is_classification_col - is classification dataset (1 true / 0 false, false means regression)
+    k_fold_entry - number of folds (int, greater than 2)
+    num_epochs_entry -  number of epochs (int, greater than 1)
+    batch_size_entry -  number of batches (int, greater than 1)
+    '''
+
+    def __init__(self, main_effects, cutoff, is_index, is_header, file_path, output_path, hidden_layers_structure, is_classification_data, k_fold_num = 5, num_of_epochs = 200, batch_size = 100):
+        self.use_main_effect_nets = main_effects
+        self.use_cutoff = cutoff
         self.header = True if is_header == 1 else False
         self.index = True if is_index == 1 else False
         self.file_name = file_path
         self.out_path = output_path
         self.hidden_layers = hidden_layers_structure
         self.n_hidden_layers = len(hidden_layers_structure)
+        self.num_epochs = num_of_epochs
+        self.batch_size = batch_size
+        self.k_fold = k_fold_num
+
         #output
-        self.heatmap_name=self.out_path+"\pairwise_heatmap.png"
-        self.pairwise_out_name = self.out_path + "\pairwise_ranking.csv"
-        self.higher_order_out_name = self.out_path + "\higher_order_ranking.csv"
+        self.heatmap_name=self.out_path+"/pairwise_heatmap.png"
+        self.pairwise_out_name = self.out_path + "/pairwise_ranking.csv"
+        self.higher_order_out_name = self.out_path + "/higher_order_ranking.csv"
         # set params
         self.is_classification = is_classification_data
+
         self.df, self.num_samples, self.num_input, self.num_output = self.read_csv()
         self.X = tf.placeholder("float", [None, self.num_input])
         self.Y = tf.placeholder("float", [None, self.num_output])
         # access weights & biases
         self.weights = self.create_weights()
         self.biases = self.create_biases()
+        self.va_error = 0
+
 
     def read_csv(self):
         df = pd.read_csv(self.file_name) if self.header else pd.read_csv(self.file_name, header=None)
@@ -56,10 +76,21 @@ class NID:
         num_samples = df.shape[0]
         num_input = df.shape[1]-1 #without the target column
         num_out = df[df.columns[-1]].nunique() if self.is_classification else 1
-        return df,num_samples,num_input,num_out
+        if df.empty:
+            raise ValueError('Empty file input')
+        elif self.k_fold>num_samples:
+            raise ValueError('Mismatch between K-folds and dataset')
+        else:
+            return df,num_samples,num_input,num_out
+
 
     def preprocess_df(self, df):
-        range = df.shape[1]-1 if self.is_classification else df.shape[1]
+
+        # check incompatible dataset type and target type
+        if self.incompatible_types(df[df.columns[-1]].dtype):
+            raise ValueError('Incompatible dataset type and target type')
+
+        range = df.shape[1] - 1 if self.is_classification else df.shape[1]
         for y in df.columns[0:range]:
             if (df[y].dtype == np.int32 or df[y].dtype == np.int64 or df[y].dtype == np.float32):
                 df[y] = df[y].astype('float64')
@@ -70,19 +101,33 @@ class NID:
                 continue
         return df
 
+    # handle incompatible types
+    def incompatible_types(self,target_type):
+        if (self.is_classification and target_type in (np.float32, np.float64)):
+            return True
+        elif (not self.is_classification and target_type==np.object):
+            return True
+        return False
+
     # Main function - running flow
     def run(self):
         X_full,Y_full = self.prepare_df()
-        kfold = KFold(n_splits=5, random_state=None, shuffle=False)
+        kfold = KFold(n_splits=self.k_fold, random_state=None, shuffle=False)
         for train, test in kfold.split(X_full):
             tr_x, te_x, tr_y, te_y, va_x, va_y = self.prepare_data(train,test,X_full,Y_full)
             tr_size = tr_x.shape[0]
-            sess = self.construct_model(tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size)
-            self.interpret_weights(sess)
-            self.average_results()
-            self.create_heat_map()
-            print(self.construct_cutoff(te_x, te_y, va_x, va_y, va_x.shape[0], self.va_error))
-            break
+            # sess = self.construct_model(tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size)
+            self.construct_model(tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size)
+            # self.interpret_weights(sess)
+        self.average_results()
+
+        if self.use_cutoff:
+            self.k, err = self.construct_cutoff(te_x, te_y, va_x, va_y, va_x.shape[0], self.va_error)
+            print(self.k, err)
+
+        self.final_results()
+        self.create_heat_map()
+
 
 
     # Prepare the df - create X,Y
@@ -181,6 +226,7 @@ class NID:
                 me_net = self.individual_univariate_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(1),
                                               self.get_biases_uninet())
                 me_nets.append(me_net)
+            self.main_effects_nets = sum(me_nets)
             net = net + sum(me_nets)
 
         # Define optimizer
@@ -223,6 +269,7 @@ class NID:
                 batch_y = tr_y[i * self.batch_size:(i + 1) * self.batch_size]
                 _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
 
+            tmp_va_err = 0
             if (epoch + 1) % 50 == 0:
                 if self.is_classification:
                     print('Epoch', epoch + 1)
@@ -245,7 +292,7 @@ class NID:
 
                     print('\t', 'train auc', tr_auc,'val auc',  va_auc, 'test auc', te_auc)
                     print('\t', 'learning rate', lr)
-                    self.va_error = 1-va_auc
+                    tmp_va_err = 1-va_auc
                 else:
                     tr_mse = sess.run(loss_op, feed_dict={self.X: tr_x, self.Y: tr_y})
                     va_mse = sess.run(loss_op, feed_dict={self.X: va_x, self.Y: va_y})
@@ -254,12 +301,50 @@ class NID:
                     print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',
                           math.sqrt(te_mse))
                     print('\t', 'learning rate', lr)
-                    self.va_error=math.sqrt(va_mse)
+                    tmp_va_err=math.sqrt(va_mse)
 
+        self.va_error += tmp_va_err
+        print('final va err:', self.va_error)
         print('done')
-        return sess
+        self.interpret_weights(sess)
+        # return sess
 
-    def run_network(self, net, size, x_d, y_d):
+    # Construct the cutoff model
+    def construct_cutoff(self, te_x, te_y, va_x, va_y, size, cutoff):
+        # self.X = tf.placeholder("float", [None, self.num_input])
+        # self.Y = tf.placeholder("float", [None, self.num_output])
+        # # access weights & biases
+        # self.weights = self.create_weights()
+        # self.biases = self.create_biases()
+
+        interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1),reverse=True)
+
+        # main effects need
+        # net = 0
+        # me_nets = []
+        # for x_i in range(self.num_input):
+        #     me_net = self.individual_univariate_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(1),
+        #                                             self.get_biases_uninet())
+        #     me_nets.append(me_net)
+        net = self.main_effects_nets
+
+        err = self.run_network(net, size, va_x, va_y, self.l2_norm, self.l2_const)
+        k = 0
+
+        for interaction in interaction_ranking:
+            if err > cutoff:
+                print(interaction)
+                features = self.get_slice_of_data(interaction[0])
+                net = net + self.individual_univariate_net(features, self.get_weights_uninet(len(interaction[0])),
+                                                           self.get_biases_uninet())
+                err = self.run_network(net, size, va_x, va_y, self.l2_norm, self.l2_const)
+                k += 1
+            else:
+                break
+        return k, err
+
+
+    def run_network(self, net, size, x_d, y_d, l_norm, l_const):
         # Define optimizer
         if self.is_classification:
             if self.num_output == 2:
@@ -271,8 +356,8 @@ class NID:
         else:
             loss_op = tf.losses.mean_squared_error(labels=self.Y, predictions=net)
 
-        sum_l2 = tf.reduce_sum([self.l2_norm(self.weights[k]) for k in self.weights])
-        loss_w_reg_op = loss_op + self.l2_const * sum_l2
+        sum_l = tf.reduce_sum([l_norm(self.weights[k]) for k in self.weights])
+        loss_w_reg_op = loss_op + l_const * sum_l
 
         batch = tf.Variable(0)
         decaying_learning_rate = tf.train.exponential_decay(self.learning_rate, batch * self.batch_size, size, 0.95, staircase=True)
@@ -326,38 +411,13 @@ class NID:
                     error_net = rmse
         return error_net
 
-    def get_specific_data(self,interaction):
+
+    def get_slice_of_data(self,interaction):
         features = []
         for feature in interaction:
             features.append(tf.expand_dims(self.X[:, feature-1],1))
         return tf.concat(features,1)
 
-    # Construct the model
-    def construct_cutoff(self, te_x, te_y, va_x, va_y, size, cutoff):
-
-        interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1),reverse=True)
-
-        # main effects need
-        me_nets = []
-        for x_i in range(self.num_input):
-            me_net = self.individual_univariate_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(1),
-                                          self.get_biases_uninet())
-            me_nets.append(me_net)
-        net = sum(me_nets)
-
-        err = self.run_network(net, size, va_x, va_y)
-        k = 0
-
-        for interaction in interaction_ranking:
-            if err>cutoff:
-                print(interaction)
-                features = self.get_specific_data(interaction[0])
-                net = net + self.individual_univariate_net(features, self.get_weights_uninet(len(interaction[0])),self.get_biases_uninet())
-                err = self.run_network(net, size, va_x, va_y)
-                k += 1
-            else:
-                break
-        return k, err
 
     def preprocess_weights(self, w_dict):
         hidden_layers = [int(layer[1:]) for layer in w_dict.keys() if layer.startswith('h')]
@@ -468,6 +528,7 @@ class NID:
         #print heatmap
         sns.set()
         ax = sns.heatmap(heatmap_df, cmap='Blues',cbar_kws={"shrink": .5})
+
         if os.path.isfile(self.heatmap_name):
             os.remove(self.heatmap_name)
         plt.savefig(self.heatmap_name)
@@ -488,21 +549,26 @@ class NID:
     # final results
     def average_results(self):
         for pair, cab in self.global_pairwise_strengths.items():
-            self.global_pairwise_strengths[pair] = float(cab) / 5
-
-        pairwise_ranking = sorted(self.global_pairwise_strengths.items(), key=operator.itemgetter(1), reverse=True)
+            self.global_pairwise_strengths[pair] = float(cab) / self.k_fold
 
         for interaction, cab in self.global_interaction_strengths.items():
-            self.global_interaction_strengths[interaction] = float(cab) / 5
+            self.global_interaction_strengths[interaction] = float(cab) / self.k_fold
 
+        self.va_error = float(self.va_error) / self.k_fold
+
+        self.k = len(self.global_interaction_strengths)
+
+
+
+    def final_results(self):
+        pairwise_ranking = sorted(self.global_pairwise_strengths.items(), key=operator.itemgetter(1), reverse=True)
         interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1), reverse=True)
-
-        print('\nFinal results:','\n##############')
+        print('\nFinal results:', '\n##############')
         print('\nHigher-Order Interaction Ranking')
         print(interaction_ranking)
         print('\nPairwise Interaction Ranking')
         print(pairwise_ranking)
-        self.write_to_csv(interaction_ranking, self.higher_order_out_name)
+        self.write_to_csv(interaction_ranking[0:self.k], self.higher_order_out_name)
         self.write_to_csv(pairwise_ranking, self.pairwise_out_name)
 
 
