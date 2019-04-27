@@ -1,4 +1,5 @@
 import csv
+import logging
 import os
 import numpy as np
 import math
@@ -57,11 +58,24 @@ class NID:
         self.heatmap_name=self.out_path+"/pairwise_heatmap.png"
         self.pairwise_out_name = self.out_path + "/pairwise_ranking.csv"
         self.higher_order_out_name = self.out_path + "/higher_order_ranking.csv"
+        self.log_out_name = self.out_path + "/log.log"
         # set params
         self.is_classification = is_classification_data
         self.df, self.num_samples, self.num_input, self.num_output = self.read_csv()
         self.va_error = 0
+        self.X = tf.placeholder("float", [None, self.num_input])
+        self.Y = tf.placeholder("float", [None, self.num_output])
 
+        # logger
+        logging.basicConfig(filename=self.log_out_name,
+                            filemode='a',
+                            format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+                            datefmt='%H:%M:%S',
+                            level=logging.DEBUG)
+
+        logging.info("Running NID framework")
+
+        self.logger = logging.getLogger('NID_LOG')
 
     def read_csv(self):
         df = pd.read_csv(self.file_name) if self.header else pd.read_csv(self.file_name, header=None)
@@ -108,8 +122,6 @@ class NID:
         X_full,Y_full = self.prepare_df()
         kfold = KFold(n_splits=self.k_fold, random_state=None, shuffle=False)
         for train, test in kfold.split(X_full):
-            self.X = tf.placeholder("float", [None, self.num_input])
-            self.Y = tf.placeholder("float", [None, self.num_output])
             # access weights & biases
             self.weights = self.create_weights()
             self.biases = self.create_biases()
@@ -118,16 +130,15 @@ class NID:
             # sess = self.construct_model(tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size)
             self.construct_model(tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size)
             # self.interpret_weights(sess)
+            # break
         self.average_results()
+        self.logger.info('Final validation error:' + self.va_error)
 
         if self.use_cutoff:
-            self.X = tf.placeholder("float", [None, self.num_input])
-            self.Y = tf.placeholder("float", [None, self.num_output])
-            # access weights & biases
-            self.weights = self.create_weights()
-            self.biases = self.create_biases()
+            self.logger.info('Cuttof process started')
             self.k, err = self.construct_cutoff(tr_x, tr_y, va_x, va_y, va_x.shape[0], self.va_error)
             print(self.k, err)
+            self.logger.info('K-cutoff: ' + self.k + ' Error:' + err)
 
         self.final_results()
         self.create_heat_map()
@@ -219,19 +230,23 @@ class NID:
     def l2_norm(self, a):
         return tf.reduce_sum(tf.pow(a, 2))
 
+
+    def main_effects_net_construct(self):
+        me_nets = []
+        for x_i in range(self.num_input):
+            me_net = self.individual_univariate_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(1),
+                                                    self.get_biases_uninet())
+            me_nets.append(me_net)
+        return me_nets
+
+
     # Construct the model
     def construct_model(self, tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size):
         # Construct model
         net = self.normal_neural_net(self.X, self.weights, self.biases)
         # check main effects need
         if self.use_main_effect_nets:
-            me_nets = []
-            for x_i in range(self.num_input):
-                me_net = self.individual_univariate_net(tf.expand_dims(self.X[:, x_i], 1), self.get_weights_uninet(1),
-                                              self.get_biases_uninet())
-                me_nets.append(me_net)
-            self.main_effects_nets = sum(me_nets)
-            net = net + sum(me_nets)
+            net = net + sum(self.main_effects_net_construct())
 
         # Define optimizer
         if self.is_classification:
@@ -262,6 +277,7 @@ class NID:
         sess.run(tf.global_variables_initializer())
 
         print('Initialized')
+        self.logger.info('Initialized')
 
         for epoch in range(self.num_epochs):
 
@@ -275,16 +291,22 @@ class NID:
 
             tmp_va_err = 0
             if (epoch + 1) % 50 == 0:
+                print('Epoch', epoch + 1)
+                self.logger.info('Epoch: ' + str(epoch + 1))
+                print('\t', 'learning rate', lr)
+                self.logger.info('\tlearning rate:' + str(lr))
                 if self.is_classification:
-                    print('Epoch', epoch + 1)
                     # Test model
                     pred = tf.nn.sigmoid(net) if self.num_output == 2 else tf.nn.softmax(net)# Apply softmax to logits
                     correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(self.Y, 1))
 
                     # Calculate accuracy
                     accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-                    print('\t', 'train acc', accuracy.eval(feed_dict={self.X: tr_x, self.Y: tr_y},session=sess), 'val acc', accuracy.eval(feed_dict={self.X: va_x, self.Y: va_y},session=sess), 'test acc', accuracy.eval(feed_dict={self.X: te_x, self.Y: te_y},session=sess))
-
+                    tr_acc = accuracy.eval(feed_dict={self.X: tr_x, self.Y: tr_y},session=sess)
+                    va_acc = accuracy.eval(feed_dict={self.X: va_x, self.Y: va_y},session=sess)
+                    te_acc = accuracy.eval(feed_dict={self.X: te_x, self.Y: te_y},session=sess)
+                    print('\t', 'train acc', tr_acc, 'val acc', va_acc, 'test acc', te_acc)
+                    self.logger.info('\ttrain acc:' + str(tr_acc) + ' val acc:' + str(va_acc) + ' test acc:', str(te_acc))
                     #auc
                     auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
                     # acc, acc_op = tf.metrics.accuracy(labels=tf.argmax(self.Y,1), predictions=tf.argmax(pred,1))
@@ -295,44 +317,44 @@ class NID:
                     te_auc= sess.run([auc, auc_op], feed_dict={self.X: te_x,self.Y: te_y})[1]
 
                     print('\t', 'train auc', tr_auc,'val auc',  va_auc, 'test auc', te_auc)
-                    print('\t', 'learning rate', lr)
+                    self.logger.info('\ttrain auc: ' + str(tr_auc) + ' val auc:' + str(va_auc), ' test auc:' + str(te_auc))
                     tmp_va_err = 1-va_auc
                 else:
                     tr_mse = sess.run(loss_op, feed_dict={self.X: tr_x, self.Y: tr_y})
                     va_mse = sess.run(loss_op, feed_dict={self.X: va_x, self.Y: va_y})
                     te_mse = sess.run(loss_op, feed_dict={self.X: te_x, self.Y: te_y})
-                    print('Epoch', epoch + 1)
-                    print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',
-                          math.sqrt(te_mse))
-                    print('\t', 'learning rate', lr)
+                    print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',math.sqrt(te_mse))
+                    self.logger.info('\ttrain rmse:' + str(math.sqrt(tr_mse))+ ' val rmse:' + str(math.sqrt(va_mse)) + ' test rmse:' + str(math.sqrt(te_mse)))
                     tmp_va_err=math.sqrt(va_mse)
 
         self.va_error += tmp_va_err
-        print('final va err:', self.va_error)
         print('done')
+        self.logger.info('Done fold running')
         self.interpret_weights(sess)
         # return sess
 
     # Construct the cutoff model
     def construct_cutoff(self, tr_x, tr_y, va_x, va_y, size, cutoff):
-        # self.X = tf.placeholder("float", [None, self.num_input])
-        # self.Y = tf.placeholder("float", [None, self.num_output])
-        # # access weights & biases
-        # self.weights = self.create_weights()
-        # self.biases = self.create_biases()
 
         interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1),reverse=True)
-        net = self.main_effects_nets
 
-        err = self.run_network(net, size, va_x, va_y, self.l2_norm, self.l2_const)
+        err = self.run_network(sum(self.main_effects_net_construct()), size, va_x, va_y, self.l2_norm, self.l2_const)
         k = 0
 
-        for interaction in interaction_ranking:
+        for i in range(len(interaction_ranking)):
+            interactions_uninets = []
+            for j in range(i+1):
+                interaction = self.get_slice_of_data(interaction_ranking[j][0])
+                interactions_uninets.append(self.individual_univariate_net(interaction, self.get_weights_uninet(len(interaction_ranking[j][0])),
+                                               self.get_biases_uninet()))
+
+            # access weights & biases
+            self.weights = self.create_weights()
+            self.biases = self.create_biases()
             if err > cutoff:
-                print(interaction)
-                features = self.get_slice_of_data(interaction[0])
-                net = net + self.individual_univariate_net(features, self.get_weights_uninet(len(interaction[0])),
-                                                           self.get_biases_uninet())
+                print(interaction_ranking[i])
+                self.logger.info(str(interaction_ranking[i]))
+                net = sum(self.main_effects_net_construct()) + sum(interactions_uninets)
                 err = self.run_network(net, size, va_x, va_y, self.l2_norm, self.l2_const)
                 k += 1
             else:
@@ -359,7 +381,6 @@ class NID:
         decaying_learning_rate = tf.train.exponential_decay(self.learning_rate, batch * self.batch_size, size, 0.95, staircase=True)
         optimizer = tf.train.AdamOptimizer(learning_rate=decaying_learning_rate).minimize(loss_w_reg_op, global_step=batch)
 
-        # init = tf.global_variables_initializer()
         n_batches = size // self.batch_size
         config = tf.ConfigProto()
         config.gpu_options.per_process_gpu_memory_fraction = 0.25
@@ -368,6 +389,7 @@ class NID:
         sess.run(tf.global_variables_initializer())
 
         print('Initialized')
+        self.logger.info('Initialized')
 
         error_net = 0
         for epoch in range(self.num_epochs):
@@ -381,30 +403,43 @@ class NID:
                 _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
 
             if (epoch + 1) % 50 == 0:
+                print('Epoch', epoch + 1)
+                self.logger.info('Epoch: ' + str(epoch + 1))
+                print('\t', 'learning rate', lr)
+                self.logger.info('\tlearning rate:' + str(lr))
+
                 if self.is_classification:
-                    print('Epoch', epoch + 1)
                     # Test model
                     pred = tf.nn.sigmoid(net) if self.num_output == 2 else tf.nn.softmax(net)  # Apply softmax to logits
                     correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(self.Y, 1))
 
                     # Calculate accuracy
                     accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-                    print('\t', 'acc', accuracy.eval(feed_dict={self.X: x_d, self.Y: y_d}, session=sess))
+                    acc_va = accuracy.eval(feed_dict={self.X: x_d, self.Y: y_d}, session=sess)
+                    print('\t', 'acc', acc_va)
+                    self.logger.info('\tacc: ' + str(acc_va))
+                    # print('\t', 'acc_va', accuracy.eval(feed_dict={self.X: va_x, self.Y: va_y}, session=sess))
 
                     # auc
                     auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
                     sess.run(tf.local_variables_initializer())
                     error = sess.run([auc, auc_op], feed_dict={self.X: x_d, self.Y: y_d})[1]
+                    # va_auc = sess.run([auc, auc_op], feed_dict={self.X: va_x, self.Y: va_y})[1]
+                    # print('\t', 'auc', va_auc)
                     print('\t', 'auc', error)
-                    print('\t', 'learning rate', lr)
+                    self.logger.info('\tauc: ' + str(error))
                     error_net = 1-error
+                    # error_net = 1-va_auc
                 else:
                     mse = sess.run(loss_op, feed_dict={self.X: x_d, self.Y: y_d})
-                    print('Epoch', epoch + 1)
                     rmse =  math.sqrt(mse)
+
+                    # va_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: va_x, self.Y: va_y}))
+                    # print('\t', 'rmse_va', va_rmse)
                     print('\t', 'rmse', rmse)
-                    print('\t', 'learning rate', lr)
+                    self.logger.info('\trmse: ' + str(rmse))
                     error_net = rmse
+                    # error_net = va_rmse
         return error_net
 
 
@@ -516,15 +551,14 @@ class NID:
             a = pair[0]
             b = pair[1]
             pairwise_2d[b - 1][a - 1] = cab
-            # pairwise_2d[a - 1][b - 1] = cab
-        # sns.set()
+
         heatmap_df = pd.DataFrame(np.array(pairwise_2d))
         heatmap_df.index += 1
         heatmap_df.columns += 1
         #print heatmap
         sns.set()
-        ax = sns.heatmap(heatmap_df, cmap='Blues',cbar_kws={"shrink": .5})
-
+        self.ax = sns.heatmap(heatmap_df, cmap='Blues',cbar_kws={"shrink": .5})
+        # save heatmap as file
         if os.path.isfile(self.heatmap_name):
             os.remove(self.heatmap_name)
         plt.savefig(self.heatmap_name)
@@ -535,12 +569,16 @@ class NID:
         w_dict = sess.run(self.weights)
 
         # Higher-Order Interaction Ranking
+        interaction_ranking = self.get_interaction_ranking(w_dict)
         print('\nHigher-Order Interaction Ranking')
-        print(self.get_interaction_ranking(w_dict))
+        print(interaction_ranking)
+        self.logger.info('Higher-Order Interaction Ranking\n' + str(interaction_ranking))
 
         # Pairwise Interaction Ranking
+        pairwise_ranking = self.get_pairwise_ranking(w_dict)
         print('\nPairwise Interaction Ranking')
-        print(self.get_pairwise_ranking(w_dict))
+        print(pairwise_ranking)
+        self.logger.info('Pairwise Interaction Ranking\n' + str(pairwise_ranking))
 
     # final results
     def average_results(self):
@@ -562,8 +600,10 @@ class NID:
         print('\nFinal results:', '\n##############')
         print('\nHigher-Order Interaction Ranking')
         print(interaction_ranking)
+        self.logger.info('Final results:\n##############\nHigher-Order Interaction Ranking\n' + str(interaction_ranking))
         print('\nPairwise Interaction Ranking')
         print(pairwise_ranking)
+        self.logger.info('Pairwise Interaction Ranking\n' + str(pairwise_ranking))
         self.write_to_csv(interaction_ranking[0:self.k], self.higher_order_out_name)
         self.write_to_csv(pairwise_ranking, self.pairwise_out_name)
 
