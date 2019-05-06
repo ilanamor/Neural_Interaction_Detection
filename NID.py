@@ -2,7 +2,6 @@ import csv
 import logging
 import os
 from datetime import datetime
-
 import numpy as np
 import math
 import bisect
@@ -147,6 +146,7 @@ class NID:
                 self.k, test_err = self.construct_cutoff(te_x, te_y, va_x, va_y, va_size, validation_error)
                 self.error_test_net += test_err
                 print(self.k, test_err)
+                print('K-cutoff:' , str(self.k) , 'Error:' , str(test_err))
                 self.logger.info('K-cutoff: ' + str(self.k) + ' Error:' + str(test_err))
             else:
                 tr_size = tr_x.shape[0]
@@ -155,6 +155,7 @@ class NID:
                 self.error_test_net += test_error
 
         self.average_results()
+        print('Final validation error:' , str(self.error_test_net))
         self.logger.info('Final validation error:' + str(self.error_test_net))
         self.final_results()
         self.create_heat_map()
@@ -326,22 +327,22 @@ class NID:
         auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
         sess.run(tf.local_variables_initializer())
         sess.run([auc, auc_op], feed_dict={self.X: x_a, self.Y: y_a})
-        train_auc = sess.run([auc], feed_dict={self.X: x_a, self.Y: y_a})
-        train_error = 1 - train_auc[0]
-        print('\t', 'train auc', train_error)
-        self.logger.info('\ttrain auc:' + str(train_error))
+        a_auc = sess.run([auc], feed_dict={self.X: x_a, self.Y: y_a})
+        a_error = 1 - a_auc[0]
+        print('\t', 'train (1-auc)', a_error)
+        self.logger.info('\ttrain (1-auc):' + str(a_error))
 
         sess.run(tf.local_variables_initializer())
         sess.run([auc, auc_op], feed_dict={self.X: x_b, self.Y: y_b})
-        test_auc = sess.run([auc], feed_dict={self.X: x_b, self.Y: y_b})
-        test_error = 1 - test_auc[0]
-        print('\t', 'test auc', test_error)
-        self.logger.info('\ttest auc:' + str(test_error))
+        b_auc = sess.run([auc], feed_dict={self.X: x_b, self.Y: y_b})
+        b_error = 1 - b_auc[0]
+        print('\t', 'test (1-auc)', b_error)
+        self.logger.info('\ttest (1-auc):' + str(b_error))
 
         print('done')
         self.logger.info('Done fold running')
         self.interpret_weights(sess)
-        return train_error, test_error
+        return a_error, b_error
 
 
     def run_regression_net(self,net,x_a,y_a,x_b,y_b,a_size,l_norm,l_const):
@@ -383,16 +384,16 @@ class NID:
                 print('\t', 'learning rate', lr)
                 self.logger.info('\tlearning rate:' + str(lr))
 
-                tr_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: x_a, self.Y: y_a}))
-                te_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: x_b, self.Y: y_b}))
-                print('\t', 'train rmse', tr_rmse, 'test rmse', te_rmse)
+                a_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: x_a, self.Y: y_a}))
+                b_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: x_b, self.Y: y_b}))
+                print('\t', 'train rmse', a_rmse, 'test rmse', b_rmse)
                 self.logger.info(
-                    '\ttrain rmse:' + str(tr_rmse) +  ' test rmse:' + str(te_rmse))
+                    '\ttrain rmse:' + str(a_rmse) +  ' test rmse:' + str(b_rmse))
 
         print('done')
         self.logger.info('Done fold running')
         self.interpret_weights(sess)
-        return tr_rmse, te_rmse
+        return a_rmse, b_rmse
 
     # Construct the model
     def construct_model(self, x_a, y_a, x_b, y_b, a_size, l_norm, l_const):
