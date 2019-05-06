@@ -231,7 +231,7 @@ class GUI:
         if self.is_classification_col.get() == 0 :
             messagebox.showinfo("Info", "NID Process Completed successfully!\nFinal RMSE is: " + str(err)+'\nRuning time: '+ str(running_time))
         else:
-            messagebox.showinfo("Info", "NID Process Completed successfully!\nFinal AUC is: " + str(
+            messagebox.showinfo("Info", "NID Process Completed successfully!\nFinal (1-AUC) is: " + str(
                 err) + '\nRunning time: ' + str(running_time))
         print('\nend')
 
