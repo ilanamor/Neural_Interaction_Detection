@@ -16,6 +16,6 @@ running_time = time.time() - start_time
 if is_classification == 0:
     print( "NID Process Completed successfully!\nFinal RMSE is: " + str(assessment)+'\nRuning time: '+ str(running_time))
 else:
-    print("Info", "NID Process Completed successfully!\nFinal AUC is: " + str(assessment) + '\nRunning time: ' + str(running_time))
+    print("Info", "NID Process Completed successfully!\nFinal (1-AUC) is: " + str(assessment) + '\nRunning time: ' + str(running_time))
 
 print('\nend')
