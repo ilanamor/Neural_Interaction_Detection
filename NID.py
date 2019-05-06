@@ -1,6 +1,8 @@
 import csv
 import logging
 import os
+from datetime import datetime
+
 import numpy as np
 import math
 import bisect
@@ -22,6 +24,7 @@ class NID:
     n_hidden_uni = 10
     global_pairwise_strengths = {}
     global_interaction_strengths = {}
+    error_test_net = 0
 
     # Random seeds
     tf.set_random_seed(0)
@@ -58,11 +61,10 @@ class NID:
         self.heatmap_name=self.out_path+"/pairwise_heatmap.png"
         self.pairwise_out_name = self.out_path + "/pairwise_ranking.csv"
         self.higher_order_out_name = self.out_path + "/higher_order_ranking.csv"
-        self.log_out_name = self.out_path + "/log.log"
+        self.log_out_name = self.out_path + '/{:%Y-%m-%d}.log'.format(datetime.now())
         # set params
         self.is_classification = is_classification_data
         self.df, self.num_samples, self.num_input, self.num_output = self.read_csv()
-        self.va_error = 0
         self.X = tf.placeholder("float", [None, self.num_input])
         self.Y = tf.placeholder("float", [None, self.num_output])
 
@@ -72,9 +74,7 @@ class NID:
                             format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
                             datefmt='%H:%M:%S',
                             level=logging.DEBUG)
-
         logging.info("Running NID framework")
-
         self.logger = logging.getLogger('NID_LOG')
 
     def read_csv(self):
@@ -83,7 +83,7 @@ class NID:
         df = self.preprocess_df(df)
         num_samples = df.shape[0]
         num_input = df.shape[1]-1 #without the target column
-        num_out = df[df.columns[-1]].nunique() if self.is_classification else 1
+        num_out = self.target_dimension(df)
         if df.empty:
             raise ValueError('Empty file input')
         elif self.k_fold>num_samples:
@@ -91,6 +91,13 @@ class NID:
         else:
             return df,num_samples,num_input,num_out
 
+    def target_dimension(self, df):
+        if not self.is_classification:
+            return 1
+        elif df[df.columns[-1]].nunique() == 2:
+            return 1
+        else:
+            return df[df.columns[-1]].nunique()
 
     def preprocess_df(self, df):
 
@@ -107,6 +114,7 @@ class NID:
                 df[y] = label_encoder.fit_transform(df[y]).astype('float64')
             else:
                 continue
+
         return df
 
     # handle incompatible types
@@ -120,36 +128,54 @@ class NID:
     # Main function - running flow
     def run(self):
         X_full,Y_full = self.prepare_df()
-        kfold = KFold(n_splits=self.k_fold, random_state=None, shuffle=False)
+        kfold = KFold(n_splits=self.k_fold, random_state=1992, shuffle=False)
         for train, test in kfold.split(X_full):
+
             # access weights & biases
             self.weights = self.create_weights()
             self.biases = self.create_biases()
+
+            #create groups
             tr_x, te_x, tr_y, te_y, va_x, va_y = self.prepare_data(train,test,X_full,Y_full)
-            tr_size = tr_x.shape[0]
-            cutoff = self.construct_model(tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size)
+
             if self.use_cutoff:
+                tr_size = tr_x.shape[0]
+                train_error, validation_error = self.construct_model(tr_x, tr_y, va_x, va_y, tr_size, self.l1_norm,
+                                                                     self.l1_const)
                 self.logger.info('Cuttof process started')
-                self.k, err = self.construct_cutoff(tr_x, tr_y, va_x, va_y, va_x.shape[0], cutoff)
-                print(self.k, err)
-                self.logger.info('K-cutoff: ' + self.k + ' Error:' + err)
+                va_size = va_x.shape[0]
+                self.k, test_err = self.construct_cutoff(te_x, te_y, va_x, va_y, va_size, validation_error)
+                self.error_test_net += test_err
+                print(self.k, test_err)
+                self.logger.info('K-cutoff: ' + str(self.k) + ' Error:' + str(test_err))
+            else:
+                tr_size = tr_x.shape[0]
+                train_error, test_error = self.construct_model(tr_x, tr_y, te_x, te_y, tr_size,
+                                                               self.l1_norm, self.l1_const)
+                self.error_test_net += test_error
 
         self.average_results()
-        self.logger.info('Final validation error:' + self.va_error)
-
-
-
+        self.logger.info('Final validation error:' + str(self.error_test_net))
         self.final_results()
         self.create_heat_map()
-
+        return self.error_test_net
 
 
     # Prepare the df - create X,Y
     def prepare_df(self):
-        label_encoder = LabelEncoder()
         X_data = self.df.iloc[:, 0:self.num_input].values
-        Y_data = pd.get_dummies(label_encoder.fit_transform(self.df.iloc[:,-1]),dtype=int).values if self.is_classification else np.expand_dims(self.df.iloc[:, -1].values, axis=1)
+        Y_data = self.target_handler()
         return X_data,Y_data
+
+    def target_handler(self):
+        if not self.is_classification:
+            return np.expand_dims(self.df.iloc[:, -1].values, axis=1)
+        elif self.num_output == 1:
+            label_encoder = LabelEncoder()
+            return np.expand_dims(label_encoder.fit_transform(self.df.iloc[:, -1]),axis=1)
+        else:
+            label_encoder = LabelEncoder()
+            return pd.get_dummies(label_encoder.fit_transform(self.df.iloc[:, -1]), dtype=int).values
 
     # Train & Test split
     def prepare_data(self, train, test, X_full, Y_full):
@@ -239,235 +265,189 @@ class NID:
         return me_nets
 
 
+    def run_classification_net(self,net,x_a,y_a,x_b,y_b,a_size,l_norm,l_const):
+        # Define optimizer
+        if self.num_output == 1:
+            loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y,
+                                                              logits=net)  # use this in the case of binary classification
+            loss_op = tf.reduce_mean(loss_op)
+        else:
+            loss_op = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y, logits=net)
+            loss_op = tf.reduce_mean(loss_op)
+
+        sum_l = tf.reduce_sum([l_norm(self.weights[k]) for k in self.weights])
+        loss_w_reg_op = loss_op + l_const * sum_l
+
+        batch = tf.Variable(0)
+        decaying_learning_rate = tf.train.exponential_decay(self.learning_rate, batch * self.batch_size, a_size, 0.95,
+                                                            staircase=True)
+        optimizer = tf.train.AdamOptimizer(learning_rate=decaying_learning_rate).minimize(loss_w_reg_op,
+                                                                                          global_step=batch)
+
+        init = tf.global_variables_initializer()
+        n_batches = a_size // self.batch_size
+        config = tf.ConfigProto()
+        config.gpu_options.per_process_gpu_memory_fraction = 0.25
+        config.gpu_options.allow_growth = True
+        sess = tf.Session(config=config)
+        sess.run(init)
+
+        print('Initialized')
+        self.logger.info('Initialized')
+
+        pred = tf.nn.sigmoid(net) if self.num_output == 1 else tf.nn.softmax(net)  # Apply softmax to logits
+        correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(self.Y, 1))
+
+        for epoch in range(self.num_epochs):
+
+            batch_order = list(range(n_batches))
+            np.random.shuffle(batch_order)
+
+            for i in batch_order:
+                batch_x = x_a[i * self.batch_size:(i + 1) * self.batch_size]
+                batch_y = y_a[i * self.batch_size:(i + 1) * self.batch_size]
+                _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
+
+            if (epoch + 1) % 50 == 0:
+                print('Epoch', epoch + 1)
+                self.logger.info('Epoch: ' + str(epoch + 1))
+                print('\t', 'learning rate', lr)
+                self.logger.info('\tlearning rate:' + str(lr))
+
+                # Calculate accuracy
+                accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+                a_acc = accuracy.eval(feed_dict={self.X: x_a, self.Y: y_a}, session=sess)
+                b_acc = accuracy.eval(feed_dict={self.X: x_b, self.Y: y_b}, session=sess)
+                print('\t', 'train acc', a_acc, 'test acc', b_acc)
+                self.logger.info(
+                    '\ttrain acc:' + str(a_acc) + ' test acc:' + str(b_acc))
+
+        #auc
+        auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
+        sess.run(tf.local_variables_initializer())
+        sess.run([auc, auc_op], feed_dict={self.X: x_a, self.Y: y_a})
+        train_auc = sess.run([auc], feed_dict={self.X: x_a, self.Y: y_a})
+        train_error = 1 - train_auc[0]
+        print('\t', 'train auc', train_error)
+        self.logger.info('\ttrain auc:' + str(train_error))
+
+        sess.run(tf.local_variables_initializer())
+        sess.run([auc, auc_op], feed_dict={self.X: x_b, self.Y: y_b})
+        test_auc = sess.run([auc], feed_dict={self.X: x_b, self.Y: y_b})
+        test_error = 1 - test_auc[0]
+        print('\t', 'test auc', test_error)
+        self.logger.info('\ttest auc:' + str(test_error))
+
+        print('done')
+        self.logger.info('Done fold running')
+        self.interpret_weights(sess)
+        return train_error, test_error
+
+
+    def run_regression_net(self,net,x_a,y_a,x_b,y_b,a_size,l_norm,l_const):
+        # Define optimizer
+        loss_op = tf.losses.mean_squared_error(labels=self.Y, predictions=net)
+        sum_l = tf.reduce_sum([l_norm(self.weights[k]) for k in self.weights])
+        loss_w_reg_op = loss_op + l_const * sum_l
+
+        batch = tf.Variable(0)
+        decaying_learning_rate = tf.train.exponential_decay(self.learning_rate, batch * self.batch_size, a_size, 0.95,
+                                                            staircase=True)
+        optimizer = tf.train.AdamOptimizer(learning_rate=decaying_learning_rate).minimize(loss_w_reg_op,
+                                                                                          global_step=batch)
+
+        init = tf.global_variables_initializer()
+        n_batches = a_size // self.batch_size
+        config = tf.ConfigProto()
+        config.gpu_options.per_process_gpu_memory_fraction = 0.25
+        config.gpu_options.allow_growth = True
+        sess = tf.Session(config=config)
+        sess.run(init)
+
+        print('Initialized')
+        self.logger.info('Initialized')
+
+        for epoch in range(self.num_epochs):
+
+            batch_order = list(range(n_batches))
+            np.random.shuffle(batch_order)
+
+            for i in batch_order:
+                batch_x = x_a[i * self.batch_size:(i + 1) * self.batch_size]
+                batch_y = y_a[i * self.batch_size:(i + 1) * self.batch_size]
+                _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
+
+            if (epoch + 1) % 50 == 0:
+                print('Epoch', epoch + 1)
+                self.logger.info('Epoch: ' + str(epoch + 1))
+                print('\t', 'learning rate', lr)
+                self.logger.info('\tlearning rate:' + str(lr))
+
+                tr_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: x_a, self.Y: y_a}))
+                te_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: x_b, self.Y: y_b}))
+                print('\t', 'train rmse', tr_rmse, 'test rmse', te_rmse)
+                self.logger.info(
+                    '\ttrain rmse:' + str(tr_rmse) +  ' test rmse:' + str(te_rmse))
+
+        print('done')
+        self.logger.info('Done fold running')
+        self.interpret_weights(sess)
+        return tr_rmse, te_rmse
+
     # Construct the model
-    def construct_model(self, tr_x, te_x, tr_y, te_y, va_x, va_y, tr_size):
+    def construct_model(self, x_a, y_a, x_b, y_b, a_size, l_norm, l_const):
+
         # Construct model
         net = self.normal_neural_net(self.X, self.weights, self.biases)
+
         # check main effects need
         if self.use_main_effect_nets:
             net = net + sum(self.main_effects_net_construct())
 
         # Define optimizer
         if self.is_classification:
-            if self.num_output == 2:
-                loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y, logits=net) # use this in the case of binary classification
-                loss_op = tf.reduce_mean(loss_op)
-            else:
-                loss_op = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y,logits=net)
-                loss_op = tf.reduce_mean(loss_op)
+            return self.run_classification_net(net, x_a, y_a, x_b, y_b, a_size, l_norm, l_const)
         else:
-           loss_op = tf.losses.mean_squared_error(labels=self.Y, predictions=net)
+            return self.run_regression_net(net, x_a, y_a, x_b, y_b, a_size, l_norm, l_const)
 
-        sum_l1 = tf.reduce_sum([self.l1_norm(self.weights[k]) for k in self.weights])
-        loss_w_reg_op = loss_op + self.l1_const * sum_l1
-
-        batch = tf.Variable(0)
-        decaying_learning_rate = tf.train.exponential_decay(self.learning_rate, batch * self.batch_size, tr_size, 0.95,
-                                                            staircase=True)
-        optimizer = tf.train.AdamOptimizer(learning_rate=decaying_learning_rate).minimize(loss_w_reg_op,
-                                                                                          global_step=batch)
-
-        # init = tf.global_variables_initializer()
-        n_batches = tr_size // self.batch_size
-        config = tf.ConfigProto()
-        config.gpu_options.per_process_gpu_memory_fraction = 0.25
-        config.gpu_options.allow_growth = True
-        sess = tf.Session(config=config)
-        sess.run(tf.global_variables_initializer())
-
-        print('Initialized')
-        self.logger.info('Initialized')
-
-        for epoch in range(self.num_epochs):
-
-            batch_order = list(range(n_batches))
-            np.random.shuffle(batch_order)
-
-            for i in batch_order:
-                batch_x = tr_x[i * self.batch_size:(i + 1) * self.batch_size]
-                batch_y = tr_y[i * self.batch_size:(i + 1) * self.batch_size]
-                _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
-
-            va_error = 0
-            if (epoch + 1) % 50 == 0:
-                print('Epoch', epoch + 1)
-                self.logger.info('Epoch: ' + str(epoch + 1))
-                print('\t', 'learning rate', lr)
-                self.logger.info('\tlearning rate:' + str(lr))
-                if self.is_classification:
-                    # Test model
-                    pred = tf.nn.sigmoid(net) if self.num_output == 2 else tf.nn.softmax(net)# Apply softmax to logits
-                    correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(self.Y, 1))
-
-                    # Calculate accuracy
-                    accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-                    tr_acc = accuracy.eval(feed_dict={self.X: tr_x, self.Y: tr_y},session=sess)
-                    va_acc = accuracy.eval(feed_dict={self.X: va_x, self.Y: va_y},session=sess)
-                    te_acc = accuracy.eval(feed_dict={self.X: te_x, self.Y: te_y},session=sess)
-                    print('\t', 'train acc', tr_acc, 'val acc', va_acc, 'test acc', te_acc)
-                    self.logger.info('\ttrain acc:' + str(tr_acc) + ' val acc:' + str(va_acc) + ' test acc:', str(te_acc))
-                    #auc
-                    auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
-                    # acc, acc_op = tf.metrics.accuracy(labels=tf.argmax(self.Y,1), predictions=tf.argmax(pred,1))
-                    sess.run(tf.local_variables_initializer())
-
-                    tr_auc = sess.run([auc, auc_op], feed_dict={self.X: tr_x,self.Y: tr_y})[1]
-                    va_auc = sess.run([auc, auc_op], feed_dict={self.X: va_x,self.Y: va_y})[1]
-                    te_auc= sess.run([auc, auc_op], feed_dict={self.X: te_x,self.Y: te_y})[1]
-
-                    print('\t', 'train auc', tr_auc,'val auc',  va_auc, 'test auc', te_auc)
-                    self.logger.info('\ttrain auc: ' + str(tr_auc) + ' val auc:' + str(va_auc), ' test auc:' + str(te_auc))
-                    va_error = 1-va_auc
-                else:
-                    tr_mse = sess.run(loss_op, feed_dict={self.X: tr_x, self.Y: tr_y})
-                    va_mse = sess.run(loss_op, feed_dict={self.X: va_x, self.Y: va_y})
-                    te_mse = sess.run(loss_op, feed_dict={self.X: te_x, self.Y: te_y})
-                    print('\t', 'train rmse', math.sqrt(tr_mse), 'val rmse', math.sqrt(va_mse), 'test rmse',math.sqrt(te_mse))
-                    self.logger.info('\ttrain rmse:' + str(math.sqrt(tr_mse))+ ' val rmse:' + str(math.sqrt(va_mse)) + ' test rmse:' + str(math.sqrt(te_mse)))
-                    va_error=math.sqrt(va_mse)
-
-        print('done')
-        self.logger.info('Done fold running')
-        self.interpret_weights(sess)
-        return va_error
 
     # Construct the cutoff model
-    def construct_cutoff(self, tr_x, tr_y, va_x, va_y, size, cutoff):
+    def construct_cutoff(self, te_x, te_y, va_x, va_y, size, cutoff):
 
         interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1),reverse=True)
+        net = sum(self.main_effects_net_construct())
 
-        err = self.run_network(sum(self.main_effects_net_construct()), size, va_x, va_y, self.l2_norm, self.l2_const)
-        k = 0
+        if self.is_classification:
+            va_err, te_err = self.run_classification_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm, self.l2_const)
+        else:
+            va_err, te_err = self.run_regression_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm, self.l2_const)
 
+        k=0
         for i in range(len(interaction_ranking)):
-            interactions_uninets = []
-            for j in range(i+1):
-                interaction = self.get_slice_of_data(interaction_ranking[j][0])
-                interactions_uninets.append(self.individual_univariate_net(interaction, self.get_weights_uninet(len(interaction_ranking[j][0])),
-                                               self.get_biases_uninet()))
+            if va_err > cutoff:
+                interactions_uninets = []
+                for j in range(i + 1):
+                    interaction = self.get_slice_of_data(interaction_ranking[j][0])
+                    interactions_uninets.append(self.individual_univariate_net(interaction, self.get_weights_uninet(len(interaction_ranking[j][0])),self.get_biases_uninet()))
 
-            # access weights & biases
-            self.weights = self.create_weights()
-            self.biases = self.create_biases()
+                # access weights & biases
+                self.weights = self.create_weights()
+                self.biases = self.create_biases()
 
-            net=None
-            sess=None
-            loss_op= None
-            if err > cutoff:
-                print(interaction_ranking[i])
-                self.logger.info(str(interaction_ranking[i]))
+                print(i,interaction_ranking[i])
+                self.logger.info(str(i) +': ' + str(interaction_ranking[i]))
                 net = sum(self.main_effects_net_construct()) + sum(interactions_uninets)
-                err, sess, loss_op = self.run_network(net, size, va_x, va_y, self.l2_norm, self.l2_const)
+                if self.is_classification:
+                    va_err, te_err = self.run_classification_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm,
+                                                                 self.l2_const)
+                else:
+                    va_err, te_err = self.run_regression_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm,
+                                                             self.l2_const)
                 k += 1
             else:
-                self.test_evaluation(sess,net, loss_op)
                 break
-        return k, err
+        return k, te_err
 
-
-    def run_network(self, net, size, x_d, y_d, l_norm, l_const):
-        # Define optimizer
-        if self.is_classification:
-            if self.num_output == 2:
-                loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y,logits=net)  # use this in the case of binary classification
-                loss_op = tf.reduce_mean(loss_op)
-            else:
-                loss_op = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y, logits=net)
-                loss_op = tf.reduce_mean(loss_op)
-        else:
-            loss_op = tf.losses.mean_squared_error(labels=self.Y, predictions=net)
-
-        sum_l = tf.reduce_sum([l_norm(self.weights[k]) for k in self.weights])
-        loss_w_reg_op = loss_op + l_const * sum_l
-
-        batch = tf.Variable(0)
-        decaying_learning_rate = tf.train.exponential_decay(self.learning_rate, batch * self.batch_size, size, 0.95, staircase=True)
-        optimizer = tf.train.AdamOptimizer(learning_rate=decaying_learning_rate).minimize(loss_w_reg_op, global_step=batch)
-
-        n_batches = size // self.batch_size
-        config = tf.ConfigProto()
-        config.gpu_options.per_process_gpu_memory_fraction = 0.25
-        config.gpu_options.allow_growth = True
-        sess = tf.Session(config=config)
-        sess.run(tf.global_variables_initializer())
-
-        print('Initialized')
-        self.logger.info('Initialized')
-
-        error_test_net = 0
-        for epoch in range(self.num_epochs):
-
-            batch_order = list(range(n_batches))
-            np.random.shuffle(batch_order)
-
-            for i in batch_order:
-                batch_x = x_d[i * self.batch_size:(i + 1) * self.batch_size]
-                batch_y = y_d[i * self.batch_size:(i + 1) * self.batch_size]
-                _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
-
-            if (epoch + 1) % 50 == 0:
-                print('Epoch', epoch + 1)
-                self.logger.info('Epoch: ' + str(epoch + 1))
-                print('\t', 'learning rate', lr)
-                self.logger.info('\tlearning rate:' + str(lr))
-
-                if self.is_classification:
-                    # Test model
-                    pred = tf.nn.sigmoid(net) if self.num_output == 2 else tf.nn.softmax(net)  # Apply softmax to logits
-                    correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(self.Y, 1))
-
-                    # Calculate accuracy
-                    accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-                    acc_va = accuracy.eval(feed_dict={self.X: x_d, self.Y: y_d}, session=sess)
-                    print('\t', 'acc validation', acc_va)
-                    self.logger.info('\tacc acc: ' + str(acc_va))
-
-                    # auc
-                    auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
-                    sess.run(tf.local_variables_initializer())
-                    error_validation = sess.run([auc, auc_op], feed_dict={self.X: x_d, self.Y: y_d})[1]
-                    print('\t', 'auc validation', error_validation)
-                    self.logger.info('\tauc validation: ' + str(error_validation))
-
-                    error_test_net = 1-error_validation
-                else:
-                    mse_validation = sess.run(loss_op, feed_dict={self.X: x_d, self.Y: y_d})
-                    rmse_validation =  math.sqrt(mse_validation)
-                    print('\t', 'rmse validation', rmse_validation)
-                    self.logger.info('\trmse validation: ' + str(rmse_validation))
-
-                    error_test_net = rmse_validation
-
-        return error_test_net, sess, loss_op
-
-
-    def test_evaluation(self, sess, net, te_x, te_y, loss_op):
-        if self.is_classification:
-            # Test model
-            pred = tf.nn.sigmoid(net) if self.num_output == 2 else tf.nn.softmax(net)  # Apply softmax to logits
-            correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(self.Y, 1))
-
-            # Calculate accuracy
-            accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-            acc_te = accuracy.eval(feed_dict={self.X: te_x, self.Y: te_x}, session=sess)
-            print('\t', 'acc test', acc_te)
-            self.logger.info('\tacc test: ' + str(acc_te))
-
-            # auc
-            auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
-            sess.run(tf.local_variables_initializer())
-            error_test = sess.run([auc, auc_op], feed_dict={self.X: te_x, self.Y: te_y})[1]
-            print('\t', 'auc test', error_test)
-            self.logger.info('\tauc test: ' + str(error_test))
-
-            self.error_test_net += (1 - error_test)
-        else:
-            mse_test = sess.run(loss_op, feed_dict={self.X: te_x, self.Y: te_y})
-            rmse_test = math.sqrt(mse_test)
-            print('\t', 'rmse test', rmse_test)
-            self.logger.info('\trmse test: ' + str(rmse_test))
-
-            self.error_test_net += rmse_test
 
     def get_slice_of_data(self,interaction):
         features = []
@@ -579,16 +559,21 @@ class NID:
             pairwise_2d[b - 1][a - 1] = cab
 
         heatmap_df = pd.DataFrame(np.array(pairwise_2d))
-        heatmap_df.index += 1
-        heatmap_df.columns += 1
+        if self.header:
+            heatmap_df.index = self.df.columns[0:-1]
+            heatmap_df.columns = self.df.columns[0:-1]
+        else:
+            heatmap_df.index += 1
+            heatmap_df.columns += 1
+
         #print heatmap
-        sns.set()
-        self.ax = sns.heatmap(heatmap_df, cmap='Blues',cbar_kws={"shrink": .5})
+        sns.set(rc={'figure.figsize':(12.0,9.0)})
+        ax = sns.heatmap(heatmap_df, cmap='Blues',cbar_kws={"shrink": .5, "label": "strength"})
+        ax.set_title("Pairwise interactions strengths", loc="center", fontsize=20)
         # save heatmap as file
         if os.path.isfile(self.heatmap_name):
             os.remove(self.heatmap_name)
         plt.savefig(self.heatmap_name)
-        # plt.show()
 
 
     def interpret_weights(self, sess):
@@ -615,7 +600,6 @@ class NID:
             self.global_interaction_strengths[interaction] = float(cab) / self.k_fold
 
         self.error_test_net =  float(self.error_test_net) / self.k_fold
-
 
 
     def final_results(self):
