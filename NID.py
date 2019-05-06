@@ -139,8 +139,9 @@ class NID:
 
             if self.use_cutoff:
                 tr_size = tr_x.shape[0]
-                train_error, validation_error = self.construct_model(tr_x, tr_y, va_x, va_y, tr_size, self.l1_norm,
+                train_error, validation_error, sess = self.construct_model(tr_x, tr_y, va_x, va_y, tr_size, self.l1_norm,
                                                                      self.l1_const)
+                self.interpret_weights(sess)
                 self.logger.info('Cuttof process started')
                 va_size = va_x.shape[0]
                 self.k, test_err = self.construct_cutoff(te_x, te_y, va_x, va_y, va_size, validation_error)
@@ -150,8 +151,9 @@ class NID:
                 self.logger.info('K-cutoff: ' + str(self.k) + ' Error:' + str(test_err))
             else:
                 tr_size = tr_x.shape[0]
-                train_error, test_error = self.construct_model(tr_x, tr_y, te_x, te_y, tr_size,
+                train_error, test_error, sess = self.construct_model(tr_x, tr_y, te_x, te_y, tr_size,
                                                                self.l1_norm, self.l1_const)
+                self.interpret_weights(sess)
                 self.error_test_net += test_error
 
         self.average_results()
@@ -159,6 +161,7 @@ class NID:
         self.logger.info('Final validation error:' + str(self.error_test_net))
         self.final_results()
         self.create_heat_map()
+        logging.shutdown()
         return self.error_test_net
 
 
@@ -341,8 +344,7 @@ class NID:
 
         print('done')
         self.logger.info('Done fold running')
-        self.interpret_weights(sess)
-        return a_error, b_error
+        return a_error, b_error, sess
 
 
     def run_regression_net(self,net,x_a,y_a,x_b,y_b,a_size,l_norm,l_const):
@@ -392,8 +394,7 @@ class NID:
 
         print('done')
         self.logger.info('Done fold running')
-        self.interpret_weights(sess)
-        return a_rmse, b_rmse
+        return a_rmse, b_rmse, sess
 
     # Construct the model
     def construct_model(self, x_a, y_a, x_b, y_b, a_size, l_norm, l_const):
@@ -439,11 +440,13 @@ class NID:
                 self.logger.info(str(i) +': ' + str(interaction_ranking[i]))
                 net = sum(self.main_effects_net_construct()) + sum(interactions_uninets)
                 if self.is_classification:
-                    va_err, te_err = self.run_classification_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm,
+                    va_err, te_err, sess = self.run_classification_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm,
                                                                  self.l2_const)
+                    sess.close()
                 else:
-                    va_err, te_err = self.run_regression_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm,
+                    va_err, te_err, sess = self.run_regression_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm,
                                                              self.l2_const)
+                    sess.close()
                 k += 1
             else:
                 break
@@ -575,6 +578,7 @@ class NID:
         if os.path.isfile(self.heatmap_name):
             os.remove(self.heatmap_name)
         plt.savefig(self.heatmap_name)
+        plt.clf()
 
 
     def interpret_weights(self, sess):
@@ -591,6 +595,7 @@ class NID:
         print('\nPairwise Interaction Ranking')
         print(pairwise_ranking)
         self.logger.info('Pairwise Interaction Ranking\n' + str(pairwise_ranking))
+        sess.close()
 
     # final results
     def average_results(self):
