@@ -223,6 +223,7 @@ class GUI:
 
         self.status.config(text='Process Started...')
         self.status.update()
+        self.freeze()
         start_time = time.time()
         err = nid.run()
         running_time = time.time() - start_time
@@ -321,6 +322,22 @@ class GUI:
             tk.messagebox.showerror("Missing parameter", "Insert a directory path to output file")
             return
 
+    def freeze(self):
+        self.mlp_entry.config(state="disable")
+        self.mlp_entry.config(state="disable")
+        self.mlp_cutoff_entry.config(state="disable")
+        self.entryPath.config(state="disable")
+        self.entryOutPath.config(state="disable")
+        self.units_arr_entry.config(state="disable")
+        self.k_fold_entry.config(state="disable")
+        self.num_epochs_entry.config(state="disable")
+        self.batch_size_entry.config(state="disable")
+        self.is_header_entry.config(state="disable")
+        self.is_index_col_entry.config(state="disable")
+        self.is_regression_entry.config(state="disable")
+        self.is_classification_entry.config(state="disable")
+        self.submit_button.config(state="disable")
+        self.submit_button.update()
 
 def main():
     root = tk.Tk()
