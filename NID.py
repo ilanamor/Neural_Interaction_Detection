@@ -417,12 +417,15 @@ class NID:
     def construct_cutoff(self, te_x, te_y, va_x, va_y, size, cutoff):
 
         interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1),reverse=True)
+        self.round_interaction_ranking
         net = sum(self.main_effects_net_construct())
 
         if self.is_classification:
-            va_err, te_err = self.run_classification_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm, self.l2_const)
+            va_err, te_err, sess = self.run_classification_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm, self.l2_const)
+            sess.close()
         else:
-            va_err, te_err = self.run_regression_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm, self.l2_const)
+            va_err, te_err, sess = self.run_regression_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm, self.l2_const)
+            sess.close()
 
         k=0
         for i in range(len(interaction_ranking)):
@@ -585,16 +588,16 @@ class NID:
         w_dict = sess.run(self.weights)
 
         # Higher-Order Interaction Ranking
-        interaction_ranking = self.get_interaction_ranking(w_dict)
+        self.round_interaction_ranking = self.get_interaction_ranking(w_dict)
         print('\nHigher-Order Interaction Ranking')
-        print(interaction_ranking)
-        self.logger.info('Higher-Order Interaction Ranking\n' + str(interaction_ranking))
+        print(self.round_interaction_ranking)
+        self.logger.info('Higher-Order Interaction Ranking\n' + str(self.round_interaction_ranking))
 
         # Pairwise Interaction Ranking
-        pairwise_ranking = self.get_pairwise_ranking(w_dict)
+        self.round_pairwise_ranking = self.get_pairwise_ranking(w_dict)
         print('\nPairwise Interaction Ranking')
-        print(pairwise_ranking)
-        self.logger.info('Pairwise Interaction Ranking\n' + str(pairwise_ranking))
+        print(self.round_pairwise_ranking)
+        self.logger.info('Pairwise Interaction Ranking\n' + str(self.round_pairwise_ranking))
         sess.close()
 
     # final results
