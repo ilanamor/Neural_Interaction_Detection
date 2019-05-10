@@ -128,7 +128,10 @@ class NID:
     def run(self):
         X_full,Y_full = self.prepare_df()
         kfold = KFold(n_splits=self.k_fold, random_state=1992, shuffle=False)
-        for train, test in kfold.split(X_full):
+        for n, fold in enumerate(kfold.split(X_full)):
+            train, test = fold[0], fold[1]
+            print('\nFold num:', str(n))
+            self.logger.info('Fold num: ' + str(n))
 
             # access weights & biases
             self.weights = self.create_weights()
@@ -140,7 +143,7 @@ class NID:
             if self.use_cutoff:
                 tr_size = tr_x.shape[0]
                 train_error, validation_error, sess = self.construct_model(tr_x, tr_y, va_x, va_y, tr_size, self.l1_norm,
-                                                                     self.l1_const)
+                                                                     self.l1_const,'train','validation')
                 self.interpret_weights(sess)
                 self.logger.info('Cuttof process started')
                 va_size = va_x.shape[0]
@@ -152,7 +155,7 @@ class NID:
             else:
                 tr_size = tr_x.shape[0]
                 train_error, test_error, sess = self.construct_model(tr_x, tr_y, te_x, te_y, tr_size,
-                                                               self.l1_norm, self.l1_const)
+                                                               self.l1_norm, self.l1_const,'train','test')
                 self.interpret_weights(sess)
                 self.error_test_net += test_error
 
@@ -269,7 +272,7 @@ class NID:
         return me_nets
 
 
-    def run_classification_net(self,net,x_a,y_a,x_b,y_b,a_size,l_norm,l_const):
+    def run_classification_net(self,net,x_a,y_a,x_b,y_b,a_size,l_norm,l_const,a_label, b_label):
         # Define optimizer
         if self.num_output == 1:
             loss_op = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.Y,
@@ -322,9 +325,9 @@ class NID:
                 accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
                 a_acc = accuracy.eval(feed_dict={self.X: x_a, self.Y: y_a}, session=sess)
                 b_acc = accuracy.eval(feed_dict={self.X: x_b, self.Y: y_b}, session=sess)
-                print('\t', 'train acc', a_acc, 'test acc', b_acc)
+                print('\t', a_label, 'acc:', a_acc, b_label, 'acc:', b_acc)
                 self.logger.info(
-                    '\ttrain acc:' + str(a_acc) + ' test acc:' + str(b_acc))
+                    '\t' + a_label + ' acc:' + str(a_acc) + ' ' + b_label +' acc:' + str(b_acc))
 
         #auc
         auc, auc_op = tf.metrics.auc(labels=self.Y, predictions=pred)
@@ -332,22 +335,22 @@ class NID:
         sess.run([auc, auc_op], feed_dict={self.X: x_a, self.Y: y_a})
         a_auc = sess.run([auc], feed_dict={self.X: x_a, self.Y: y_a})
         a_error = 1 - a_auc[0]
-        print('\t', 'train (1-auc)', a_error)
-        self.logger.info('\ttrain (1-auc):' + str(a_error))
+        print('\t', a_label, '(1-auc)', a_error)
+        self.logger.info('\t' + a_label + ' (1-auc):' + str(a_error))
 
         sess.run(tf.local_variables_initializer())
         sess.run([auc, auc_op], feed_dict={self.X: x_b, self.Y: y_b})
         b_auc = sess.run([auc], feed_dict={self.X: x_b, self.Y: y_b})
         b_error = 1 - b_auc[0]
-        print('\t', 'test (1-auc)', b_error)
-        self.logger.info('\ttest (1-auc):' + str(b_error))
+        print('\t', b_label, ' (1-auc)', b_error)
+        self.logger.info('\t' + b_label + ' (1-auc):' + str(b_error))
 
         print('done')
         self.logger.info('Done fold running')
         return a_error, b_error, sess
 
 
-    def run_regression_net(self,net,x_a,y_a,x_b,y_b,a_size,l_norm,l_const):
+    def run_regression_net(self,net,x_a,y_a,x_b,y_b,a_size,l_norm,l_const, a_label, b_label):
         # Define optimizer
         loss_op = tf.losses.mean_squared_error(labels=self.Y, predictions=net)
         sum_l = tf.reduce_sum([l_norm(self.weights[k]) for k in self.weights])
@@ -388,16 +391,16 @@ class NID:
 
                 a_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: x_a, self.Y: y_a}))
                 b_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: x_b, self.Y: y_b}))
-                print('\t', 'train rmse', a_rmse, 'test rmse', b_rmse)
+                print('\t', a_label, ' rmse:', a_rmse, b_label, 'rmse:', b_rmse)
                 self.logger.info(
-                    '\ttrain rmse:' + str(a_rmse) +  ' test rmse:' + str(b_rmse))
+                    '\t' + a_label + ' rmse:' + str(a_rmse) +  ' ' + b_label + '  rmse:' + str(b_rmse))
 
         print('done')
         self.logger.info('Done fold running')
         return a_rmse, b_rmse, sess
 
     # Construct the model
-    def construct_model(self, x_a, y_a, x_b, y_b, a_size, l_norm, l_const):
+    def construct_model(self, x_a, y_a, x_b, y_b, a_size, l_norm, l_const, a_label, b_label):
 
         # Construct model
         net = self.normal_neural_net(self.X, self.weights, self.biases)
@@ -408,47 +411,46 @@ class NID:
 
         # Define optimizer
         if self.is_classification:
-            return self.run_classification_net(net, x_a, y_a, x_b, y_b, a_size, l_norm, l_const)
+            return self.run_classification_net(net, x_a, y_a, x_b, y_b, a_size, l_norm, l_const, a_label, b_label)
         else:
-            return self.run_regression_net(net, x_a, y_a, x_b, y_b, a_size, l_norm, l_const)
+            return self.run_regression_net(net, x_a, y_a, x_b, y_b, a_size, l_norm, l_const, a_label, b_label)
 
 
     # Construct the cutoff model
     def construct_cutoff(self, te_x, te_y, va_x, va_y, size, cutoff):
 
-        interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1),reverse=True)
-        self.round_interaction_ranking
+
         net = sum(self.main_effects_net_construct())
 
         if self.is_classification:
-            va_err, te_err, sess = self.run_classification_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm, self.l2_const)
+            va_err, te_err, sess = self.run_classification_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm, self.l2_const, 'validation', 'test')
             sess.close()
         else:
-            va_err, te_err, sess = self.run_regression_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm, self.l2_const)
+            va_err, te_err, sess = self.run_regression_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm, self.l2_const, 'validation', 'test')
             sess.close()
 
         k=0
-        for i in range(len(interaction_ranking)):
+        for i in range(len(self.round_interaction_ranking)):
             if va_err > cutoff:
                 interactions_uninets = []
                 for j in range(i + 1):
-                    interaction = self.get_slice_of_data(interaction_ranking[j][0])
-                    interactions_uninets.append(self.individual_univariate_net(interaction, self.get_weights_uninet(len(interaction_ranking[j][0])),self.get_biases_uninet()))
+                    interaction = self.get_slice_of_data(self.round_interaction_ranking[j][0])
+                    interactions_uninets.append(self.individual_univariate_net(interaction, self.get_weights_uninet(len(self.round_interaction_ranking[j][0])),self.get_biases_uninet()))
 
                 # access weights & biases
                 self.weights = self.create_weights()
                 self.biases = self.create_biases()
 
-                print(i,interaction_ranking[i])
-                self.logger.info(str(i) +': ' + str(interaction_ranking[i]))
+                print(i,self.round_interaction_ranking[i])
+                self.logger.info(str(i) +': ' + str(self.round_interaction_ranking[i]))
                 net = sum(self.main_effects_net_construct()) + sum(interactions_uninets)
                 if self.is_classification:
                     va_err, te_err, sess = self.run_classification_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm,
-                                                                 self.l2_const)
+                                                                 self.l2_const, 'validation', 'test')
                     sess.close()
                 else:
                     va_err, te_err, sess = self.run_regression_net(net, va_x, va_y, te_x, te_y, size, self.l2_norm,
-                                                             self.l2_const)
+                                                             self.l2_const,'validation', 'test')
                     sess.close()
                 k += 1
             else:
