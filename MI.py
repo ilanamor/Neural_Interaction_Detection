@@ -2,13 +2,14 @@ import sklearn.feature_selection as sklearn
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
+np.random.seed(0)
 
 
 # params ****************
-file_path = r'C:\Users\karin\PycharmProjects\current\datasets\cal housing\cal_housing.csv'
+file_path = r'C:\Users\karin\PycharmProjects\current\datasets\higgs\higgs.csv'
 header=True
-index=False
-is_classification = False
+index=True
+is_classification = True
 # ************************
 df = pd.read_csv(file_path) if header else pd.read_csv(file_path, header=None)
 df = df.drop(df.columns[[0]], axis=1) if index else df #without the index column

@@ -3,16 +3,20 @@ from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import roc_curve, auc, roc_auc_score, mean_squared_error
+from sklearn.metrics import roc_curve, roc_auc_score, mean_squared_error, precision_recall_fscore_support, f1_score
 from matplotlib import pyplot as plt
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
+np.random.seed(0)
 
 # params ****************
-file_path = r'C:\Users\karin\PycharmProjects\current\datasets\bike\hour_new2.csv'
+# file_path = r'C:\Users\karin\PycharmProjects\current\datasets\bike\hour_new2.csv'
+file_path = r'C:\Users\karin\PycharmProjects\current\datasets\bike\hour_new.csv'
 header=True
 index=True
 is_classification = False
-kfolds = 10
+is_Binary_classification = False
+k_fold = 10
+selected = (4,5,7)
 # ************************
 df = pd.read_csv(file_path) if header else pd.read_csv(file_path, header=None)
 df = df.drop(df.columns[[0]], axis=1) if index else df #without the index column
@@ -28,19 +32,37 @@ for y in df.columns[0:range]:
             continue
 X = df.values[:,:-1,]
 Y = df.values[:,-1]
+features = []
+for feature in selected:
+    features.append(np.expand_dims(X[:, feature - 1], 1))
+X=np.concatenate(features, 1)
 auc = 0
-i=0
-while i < kfolds:
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2)
+fpr_avg =0
+tpr_avg =0
+f1_avg_score = 0
+kfold = KFold(n_splits=k_fold, random_state=1992, shuffle=False)
+for train, test in kfold.split(X):
+    X_train, X_test, y_train, y_test = X[train], X[test], Y[train], Y[test]
     if is_classification:
         model =KNeighborsClassifier(n_neighbors=5)
         y_predict = model.fit(X_train, y_train).predict(X_test)
-        auc = auc + roc_auc_score(y_test, y_predict)
+        if is_Binary_classification:
+            auc = auc + roc_auc_score(y_test, y_predict)
+            # print(confusion_matrix(y_test, y_predict))
+            fpr, tpr, thresholds = roc_curve(y_test, y_predict, pos_label=2)
+            fpr_avg = fpr_avg + fpr
+            tpr_avg = tpr_avg + tpr
+        else:
+            f1_avg_score = f1_avg_score + (f1_score(y_test, y_predict, average='macro'))
     else:
         model = KNeighborsRegressor(n_neighbors=5)
         y_predict = model.fit(X_train, y_train).predict(X_test)
         auc = auc + math.sqrt(mean_squared_error(y_test,y_predict))
-    i = i+1
-print ( auc / kfolds)
+print(auc/k_fold)
+if is_classification:
+    print ("fpr avg =" ,(fpr_avg/k_fold) ," tpr avg =" ,(tpr_avg/k_fold) )
+    if not is_Binary_classification:
+        print(precision_recall_fscore_support(y_test, y_predict, average='macro'))
+        print("f1 score:" ,f1_avg_score/k_fold)
 
 
