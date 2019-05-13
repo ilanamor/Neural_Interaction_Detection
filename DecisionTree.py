@@ -2,20 +2,20 @@ import math
 import sklearn.tree as tree
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import roc_curve, roc_auc_score, mean_squared_error, confusion_matrix, f1_score, precision_recall_fscore_support, accuracy_score
 from matplotlib import pyplot as plt
 from sklearn.model_selection import  KFold
 np.random.seed(0)
 
 # params ****************
-file_path = r'C:\Users\karin\PycharmProjects\current\datasets\letters\multi-label\letter-recognition.csv'
-header=False
-index=False
+file_path = r'C:\Users\karin\PycharmProjects\current\datasets\higgs\higgs.csv'
+header=True
+index=True
 is_classification = True
-is_Binary_classification = False
+is_Binary_classification = True
 k_fold = 10
-selected = (3,5,6,8,9,10,11,12,13,14,15)
+selected =   (1,2,3,5,6,7,13)
 # ************************
 df = pd.read_csv(file_path) if header else pd.read_csv(file_path, header=None)
 df = df.drop(df.columns[[0]], axis=1) if index else df #without the index column
@@ -42,6 +42,10 @@ f1_avg_score = 0
 kfold = KFold(n_splits=k_fold, random_state=1992, shuffle=False)
 for train, test in kfold.split(X):
     X_train, X_test, y_train, y_test = X[train], X[test], Y[train], Y[test]
+    if not is_classification:
+        scaler_y = StandardScaler()
+        scaler_y.fit(y_train.reshape(-1, 1))
+        y_train, y_test = scaler_y.transform(y_train.reshape(-1, 1)), scaler_y.transform(y_test.reshape(-1, 1))
     if is_classification:
         model = tree.DecisionTreeClassifier()
         y_predict = model.fit(X_train, y_train).predict(X_test)
