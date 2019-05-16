@@ -1,13 +1,13 @@
 import time
 from NID import NID
 
-file_path = r'C:\Users\Ilana\PycharmProjects\Neural_Interaction_Detection\datasets\cal housing\cal_housing.csv'
-output_path = r'C:\Users\Ilana\PycharmProjects\Neural_Interaction_Detection\datasets\cal housing'
+file_path = r'C:\Users\Ilana\PycharmProjects\Neural_Interaction_Detection\datasets\bike\hour_new.csv'
+output_path = r'C:\Users\Ilana\PycharmProjects\Neural_Interaction_Detection\datasets\bike'
 is_classification = 0
 
 
 start_time = time.time()
-nid = NID(main_effects=1, cutoff=0, is_index=0, is_header=1, file_path=file_path, output_path=output_path,
+nid = NID(main_effects=1, cutoff=0, is_index=1, is_header=1, file_path=file_path, output_path=output_path,
           hidden_layers_structure=[140,100,60,20],is_classification_data=is_classification, k_fold_num = 5,
           num_of_epochs = 200, batch_size = 100)
 

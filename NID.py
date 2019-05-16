@@ -106,11 +106,13 @@ class NID:
 
         range = df.shape[1] - 1 if self.is_classification else df.shape[1]
         for y in df.columns[0:range]:
-            if (df[y].dtype == np.int32 or df[y].dtype == np.int64 or df[y].dtype == np.float32):
+            if (df[y].dtype == np.float32):
                 df[y] = df[y].astype('float64')
+            elif (df[y].dtype == np.int32):
+                df[y] = df[y].astype('int64')
             elif (df[y].dtype == np.object):
                 label_encoder = LabelEncoder()
-                df[y] = label_encoder.fit_transform(df[y]).astype('float64')
+                df[y] = label_encoder.fit_transform(df[y])
             else:
                 continue
 
@@ -127,7 +129,7 @@ class NID:
     # Main function - running flow
     def run(self):
         X_full,Y_full = self.prepare_df()
-        kfold = KFold(n_splits=self.k_fold, random_state=1992, shuffle=False)
+        kfold = KFold(n_splits=self.k_fold, random_state=0, shuffle=False)
         for n, fold in enumerate(kfold.split(X_full)):
             train, test = fold[0], fold[1]
             print('\nFold num:', str(n))
@@ -170,7 +172,8 @@ class NID:
 
     # Prepare the df - create X,Y
     def prepare_df(self):
-        X_data = self.df.iloc[:, 0:self.num_input].values
+        # X_data = self.df.iloc[:, 0:self.num_input].values
+        X_data = self.df.values[:,:-1,]
         Y_data = self.target_handler()
         return X_data,Y_data
 
@@ -189,9 +192,15 @@ class NID:
         tr_x, te_x, tr_y, te_y = X_full[train], X_full[test], Y_full[train], Y_full[test]
         te_x, va_x, te_y, va_y = train_test_split(te_x, te_y, test_size = 0.5)
 
-        scaler_x = StandardScaler()
-        scaler_x.fit(tr_x)
-        tr_x, te_x, va_x = scaler_x.transform(tr_x), scaler_x.transform(te_x), scaler_x.transform(va_x)
+
+        for i in range(self.num_input):
+            if self.df[self.df.columns[i]].dtype == np.float64:
+                scaler_x = StandardScaler()
+                scaler_x.fit(tr_x.T[i].reshape(-1, 1))
+                tr_x_tmp, te_x_tmp, va_x_tmp = scaler_x.transform(tr_x.T[i].reshape(-1, 1)), scaler_x.transform(te_x.T[i].reshape(-1, 1)), scaler_x.transform(va_x.T[i].reshape(-1, 1))
+                tr_x.T[i]=tr_x_tmp.flatten()
+                te_x.T[i]=te_x_tmp.flatten()
+                va_x.T[i]=va_x_tmp.flatten()
 
         if not self.is_classification:
             scaler_y = StandardScaler()

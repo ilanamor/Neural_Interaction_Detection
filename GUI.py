@@ -229,6 +229,8 @@ class GUI:
         running_time = time.time() - start_time
         self.status.config(text='Process Completed')
         self.status.update()
+        self.exit_button.config(state="normal")
+        self.exit_button.update()
         if self.is_classification_col.get() == 0 :
             messagebox.showinfo("Info", "NID Process Completed successfully!\nFinal RMSE is: " + str(err)+'\nRuning time: '+ str(running_time))
         else:
@@ -337,6 +339,7 @@ class GUI:
         self.is_regression_entry.config(state="disable")
         self.is_classification_entry.config(state="disable")
         self.submit_button.config(state="disable")
+        self.exit_button.config(state="disable")
         self.submit_button.update()
 
 def main():
