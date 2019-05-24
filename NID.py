@@ -112,8 +112,9 @@ class NID:
                 df[y] = df[y].astype('float64')
             elif (df[y].dtype == np.int32 or df[y].dtype == np.int64):
                 df[y] = df[y].astype('int64')
-            else:
-                continue
+            elif df[y].dtype == np.object:
+                label_encoder = LabelEncoder()
+                df[y] = label_encoder.fit_transform(df[y])
 
         return df
 
@@ -200,13 +201,13 @@ class NID:
                 tr_x.T[i]=tr_x_tmp.flatten()
                 te_x.T[i]=te_x_tmp.flatten()
                 va_x.T[i]=va_x_tmp.flatten()
-            elif self.df[self.df.columns[i]].dtype == np.object:
-                label_encoder = LabelEncoder()
-                label_encoder.fit_transform(tr_x.T[i].reshape(-1, 1))
-                tr_x_tmp, te_x_tmp, va_x_tmp = label_encoder.transform(tr_x.T[i].reshape(-1, 1)), label_encoder.transform(te_x.T[i].reshape(-1, 1)), label_encoder.transform(va_x.T[i].reshape(-1, 1))
-                tr_x.T[i] = tr_x_tmp.flatten()
-                te_x.T[i] = te_x_tmp.flatten()
-                va_x.T[i] = va_x_tmp.flatten()
+            # elif self.df[self.df.columns[i]].dtype == np.object:
+            #     label_encoder = LabelEncoder()
+            #     label_encoder.fit_transform(tr_x.T[i].reshape(-1, 1))
+            #     tr_x_tmp, te_x_tmp, va_x_tmp = label_encoder.transform(tr_x.T[i].reshape(-1, 1)), label_encoder.transform(te_x.T[i].reshape(-1, 1)), label_encoder.transform(va_x.T[i].reshape(-1, 1))
+            #     tr_x.T[i] = tr_x_tmp.flatten()
+            #     te_x.T[i] = te_x_tmp.flatten()
+            #     va_x.T[i] = va_x_tmp.flatten()
 
         if not self.is_classification:
             scaler_y = StandardScaler()

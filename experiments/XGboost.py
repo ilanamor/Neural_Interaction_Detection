@@ -18,8 +18,9 @@ def read_csv():
             df[y] = df[y].astype('float64')
         elif (df[y].dtype == np.int32):
             df[y] = df[y].astype('int64')
-        else:
-            continue
+        elif df[y].dtype == np.object:
+            label_encoder = LabelEncoder()
+            df[y] = label_encoder.fit_transform(df[y])
     return df
 
 def prepare_data(train, test, X_full, Y_full, num_input):
@@ -33,18 +34,11 @@ def prepare_data(train, test, X_full, Y_full, num_input):
             tr_x_tmp, te_x_tmp = scaler_x.transform(tr_x.T[i].reshape(-1, 1)), scaler_x.transform(te_x.T[i].reshape(-1, 1))
             tr_x.T[i]=tr_x_tmp.flatten()
             te_x.T[i]=te_x_tmp.flatten()
-        elif df[df.columns[i]].dtype == np.object:
-            label_encoder = LabelEncoder()
-            label_encoder.fit_transform(tr_x.T[i].reshape(-1, 1))
-            tr_x_tmp, te_x_tmp, va_x_tmp = label_encoder.transform(tr_x.T[i].reshape(-1, 1)), label_encoder.transform(
-                te_x.T[i].reshape(-1, 1))
-            tr_x.T[i] = tr_x_tmp.flatten()
-            te_x.T[i] = te_x_tmp.flatten()
 
     if not is_classification:
         scaler_y = StandardScaler()
-        scaler_y.fit(tr_y.reshape(-1, 1))
-        tr_y, te_y = scaler_y.transform(tr_y.reshape(-1, 1)), scaler_y.transform(te_y.reshape(-1, 1))
+        scaler_y.fit(tr_y.reshape(-1,1))
+        tr_y, te_y = scaler_y.transform(tr_y.reshape(-1,1)), scaler_y.transform(te_y.reshape(-1,1))
 
     return tr_x, te_x, tr_y, te_y
 
@@ -82,7 +76,7 @@ for i in range(len(selected),0,-1):
     np.random.seed(0)
     df = read_csv()
     X_all = df.iloc[:, 0:df.shape[1] - 1].values
-    y = np.expand_dims(df.values[:,-1], axis=1)
+    y = df.values[:,-1]
     X = get_slice_of_data(selected, X_all)
 
     auc = 0
