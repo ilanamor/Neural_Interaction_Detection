@@ -1,6 +1,7 @@
 import csv
 import logging
 import os
+import warnings
 from datetime import datetime
 import numpy as np
 import math
@@ -13,10 +14,11 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-
 class NID:
     # Just disables the warning, doesn't enable AVX/FMA
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+    #constants
     learning_rate = 0.01
     l1_const = 5e-5
     l2_const = 1e-4
@@ -106,13 +108,10 @@ class NID:
 
         range = df.shape[1] - 1 if self.is_classification else df.shape[1]
         for y in df.columns[0:range]:
-            if (df[y].dtype == np.float32):
+            if (df[y].dtype == np.float32 or df[y].dtype == np.float64):
                 df[y] = df[y].astype('float64')
-            elif (df[y].dtype == np.int32):
+            elif (df[y].dtype == np.int32 or df[y].dtype == np.int64):
                 df[y] = df[y].astype('int64')
-            elif (df[y].dtype == np.object):
-                label_encoder = LabelEncoder()
-                df[y] = label_encoder.fit_transform(df[y])
             else:
                 continue
 
@@ -129,10 +128,10 @@ class NID:
     # Main function - running flow
     def run(self):
         X_full,Y_full = self.prepare_df()
-        kfold = KFold(n_splits=self.k_fold, random_state=0, shuffle=False)
+        kfold = KFold(n_splits=self.k_fold, random_state=0, shuffle=True)
         for n, fold in enumerate(kfold.split(X_full)):
             train, test = fold[0], fold[1]
-            print('\nFold num:', str(n))
+            # print('\nFold num:', str(n))
             self.logger.info('Fold num: ' + str(n))
 
             # access weights & biases
@@ -151,8 +150,8 @@ class NID:
                 va_size = va_x.shape[0]
                 self.k, test_err = self.construct_cutoff(te_x, te_y, va_x, va_y, va_size, validation_error)
                 self.error_test_net += test_err
-                print(self.k, test_err)
-                print('K-cutoff:' , str(self.k) , 'Error:' , str(test_err))
+                # print(self.k, test_err)
+                # print('K-cutoff:' , str(self.k) , 'Error:' , str(test_err))
                 self.logger.info('K-cutoff: ' + str(self.k) + ' Error:' + str(test_err))
             else:
                 tr_size = tr_x.shape[0]
@@ -162,7 +161,7 @@ class NID:
                 self.error_test_net += test_error
 
         self.average_results()
-        print('Final validation error:' , str(self.error_test_net))
+        # print('Final validation error:' , str(self.error_test_net))
         self.logger.info('Final validation error:' + str(self.error_test_net))
         self.final_results()
         self.create_heat_map()
@@ -172,8 +171,8 @@ class NID:
 
     # Prepare the df - create X,Y
     def prepare_df(self):
-        # X_data = self.df.iloc[:, 0:self.num_input].values
-        X_data = self.df.values[:,:-1,]
+        X_data = self.df.iloc[:, 0:self.num_input].values
+        # X_data = self.df.values[:,:-1,]
         Y_data = self.target_handler()
         return X_data,Y_data
 
@@ -185,7 +184,7 @@ class NID:
             return np.expand_dims(label_encoder.fit_transform(self.df.iloc[:, -1]),axis=1)
         else:
             label_encoder = LabelEncoder()
-            return pd.get_dummies(label_encoder.fit_transform(self.df.iloc[:, -1]), dtype=int).values
+            return pd.get_dummies(label_encoder.fit_transform(self.df.iloc[:, -1]), dtype=np.int64).values
 
     # Train & Test split
     def prepare_data(self, train, test, X_full, Y_full):
@@ -201,6 +200,13 @@ class NID:
                 tr_x.T[i]=tr_x_tmp.flatten()
                 te_x.T[i]=te_x_tmp.flatten()
                 va_x.T[i]=va_x_tmp.flatten()
+            elif self.df[self.df.columns[i]].dtype == np.object:
+                label_encoder = LabelEncoder()
+                label_encoder.fit_transform(tr_x.T[i].reshape(-1, 1))
+                tr_x_tmp, te_x_tmp, va_x_tmp = label_encoder.transform(tr_x.T[i].reshape(-1, 1)), label_encoder.transform(te_x.T[i].reshape(-1, 1)), label_encoder.transform(va_x.T[i].reshape(-1, 1))
+                tr_x.T[i] = tr_x_tmp.flatten()
+                te_x.T[i] = te_x_tmp.flatten()
+                va_x.T[i] = va_x_tmp.flatten()
 
         if not self.is_classification:
             scaler_y = StandardScaler()
@@ -308,7 +314,7 @@ class NID:
         sess = tf.Session(config=config)
         sess.run(init)
 
-        print('Initialized')
+        # print('Initialized')
         self.logger.info('Initialized')
 
         pred = tf.nn.sigmoid(net) if self.num_output == 1 else tf.nn.softmax(net)  # Apply softmax to logits
@@ -325,16 +331,16 @@ class NID:
                 _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
 
             if (epoch + 1) % 50 == 0:
-                print('Epoch', epoch + 1)
+                # print('Epoch', epoch + 1)
                 self.logger.info('Epoch: ' + str(epoch + 1))
-                print('\t', 'learning rate', lr)
+                # print('\t', 'learning rate', lr)
                 self.logger.info('\tlearning rate:' + str(lr))
 
                 # Calculate accuracy
                 accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
                 a_acc = accuracy.eval(feed_dict={self.X: x_a, self.Y: y_a}, session=sess)
                 b_acc = accuracy.eval(feed_dict={self.X: x_b, self.Y: y_b}, session=sess)
-                print('\t', a_label, 'acc:', a_acc, b_label, 'acc:', b_acc)
+                # print('\t', a_label, 'acc:', a_acc, b_label, 'acc:', b_acc)
                 self.logger.info(
                     '\t' + a_label + ' acc:' + str(a_acc) + ' ' + b_label +' acc:' + str(b_acc))
 
@@ -344,17 +350,17 @@ class NID:
         sess.run([auc, auc_op], feed_dict={self.X: x_a, self.Y: y_a})
         a_auc = sess.run([auc], feed_dict={self.X: x_a, self.Y: y_a})
         a_error = 1 - a_auc[0]
-        print('\t', a_label, '(1-auc)', a_error)
+        # print('\t', a_label, '(1-auc)', a_error)
         self.logger.info('\t' + a_label + ' (1-auc):' + str(a_error))
 
         sess.run(tf.local_variables_initializer())
         sess.run([auc, auc_op], feed_dict={self.X: x_b, self.Y: y_b})
         b_auc = sess.run([auc], feed_dict={self.X: x_b, self.Y: y_b})
         b_error = 1 - b_auc[0]
-        print('\t', b_label, ' (1-auc)', b_error)
+        # print('\t', b_label, ' (1-auc)', b_error)
         self.logger.info('\t' + b_label + ' (1-auc):' + str(b_error))
 
-        print('done')
+        # print('done')
         self.logger.info('Done fold running')
         return a_error, b_error, sess
 
@@ -379,7 +385,7 @@ class NID:
         sess = tf.Session(config=config)
         sess.run(init)
 
-        print('Initialized')
+        # print('Initialized')
         self.logger.info('Initialized')
 
         for epoch in range(self.num_epochs):
@@ -393,18 +399,18 @@ class NID:
                 _, lr = sess.run([optimizer, decaying_learning_rate], feed_dict={self.X: batch_x, self.Y: batch_y})
 
             if (epoch + 1) % 50 == 0:
-                print('Epoch', epoch + 1)
+                # print('Epoch', epoch + 1)
                 self.logger.info('Epoch: ' + str(epoch + 1))
-                print('\t', 'learning rate', lr)
+                # print('\t', 'learning rate', lr)
                 self.logger.info('\tlearning rate:' + str(lr))
 
                 a_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: x_a, self.Y: y_a}))
                 b_rmse = math.sqrt(sess.run(loss_op, feed_dict={self.X: x_b, self.Y: y_b}))
-                print('\t', a_label, ' rmse:', a_rmse, b_label, 'rmse:', b_rmse)
+                # print('\t', a_label, ' rmse:', a_rmse, b_label, 'rmse:', b_rmse)
                 self.logger.info(
                     '\t' + a_label + ' rmse:' + str(a_rmse) +  ' ' + b_label + '  rmse:' + str(b_rmse))
 
-        print('done')
+        # print('done')
         self.logger.info('Done fold running')
         return a_rmse, b_rmse, sess
 
@@ -450,7 +456,7 @@ class NID:
                 self.weights = self.create_weights()
                 self.biases = self.create_biases()
 
-                print(i,self.round_interaction_ranking[i])
+                # print(i,self.round_interaction_ranking[i])
                 self.logger.info(str(i) +': ' + str(self.round_interaction_ranking[i]))
                 net = sum(self.main_effects_net_construct()) + sum(interactions_uninets)
                 if self.is_classification:
@@ -600,14 +606,14 @@ class NID:
 
         # Higher-Order Interaction Ranking
         self.round_interaction_ranking = self.get_interaction_ranking(w_dict)
-        print('\nHigher-Order Interaction Ranking')
-        print(self.round_interaction_ranking)
+        # print('\nHigher-Order Interaction Ranking')
+        # print(self.round_interaction_ranking)
         self.logger.info('Higher-Order Interaction Ranking\n' + str(self.round_interaction_ranking))
 
         # Pairwise Interaction Ranking
         self.round_pairwise_ranking = self.get_pairwise_ranking(w_dict)
-        print('\nPairwise Interaction Ranking')
-        print(self.round_pairwise_ranking)
+        # print('\nPairwise Interaction Ranking')
+        # print(self.round_pairwise_ranking)
         self.logger.info('Pairwise Interaction Ranking\n' + str(self.round_pairwise_ranking))
         sess.close()
 
@@ -625,12 +631,12 @@ class NID:
     def final_results(self):
         pairwise_ranking = sorted(self.global_pairwise_strengths.items(), key=operator.itemgetter(1), reverse=True)
         interaction_ranking = sorted(self.global_interaction_strengths.items(), key=operator.itemgetter(1), reverse=True)
-        print('\nFinal results:', '\n##############')
-        print('\nHigher-Order Interaction Ranking')
-        print(interaction_ranking)
+        # print('\nFinal results:', '\n##############')
+        # print('\nHigher-Order Interaction Ranking')
+        # print(interaction_ranking)
         self.logger.info('Final results:\n##############\nHigher-Order Interaction Ranking\n' + str(interaction_ranking))
-        print('\nPairwise Interaction Ranking')
-        print(pairwise_ranking)
+        # print('\nPairwise Interaction Ranking')
+        # print(pairwise_ranking)
         self.logger.info('Pairwise Interaction Ranking\n' + str(pairwise_ranking))
         self.write_to_csv(interaction_ranking, self.higher_order_out_name)
         self.write_to_csv(pairwise_ranking, self.pairwise_out_name)

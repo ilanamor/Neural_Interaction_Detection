@@ -1,9 +1,9 @@
 import time
 from NID import NID
 
-file_path = r'C:\Users\Ilana\PycharmProjects\Neural_Interaction_Detection\datasets\bike\hour_new.csv'
-output_path = r'C:\Users\Ilana\PycharmProjects\Neural_Interaction_Detection\datasets\bike'
-is_classification = 0
+file_path = r'C:\Users\Ilana\PycharmProjects\Neural_Interaction_Detection\datasets\higgs\higgs.csv'
+output_path = r'C:\Users\Ilana\PycharmProjects\Neural_Interaction_Detection\datasets\higgs'
+is_classification = 1
 
 
 start_time = time.time()

@@ -326,7 +326,7 @@ class GUI:
 
     def freeze(self):
         self.mlp_entry.config(state="disable")
-        self.mlp_entry.config(state="disable")
+        self.mlpm_entry.config(state="disable")
         self.mlp_cutoff_entry.config(state="disable")
         self.entryPath.config(state="disable")
         self.entryOutPath.config(state="disable")

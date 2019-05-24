@@ -37,10 +37,10 @@ def prepare_data(train, test, X_full, Y_full, num_input):
     return tr_x, te_x, tr_y, te_y
 
 # ******************************* PARAMS ***************************
-file_path = r'C:\Users\Ilana\PycharmProjects\Neural_Interaction_Detection\datasets\cal housing\cal_housing.csv'
+file_path = r'C:\Users\Ilana\PycharmProjects\Neural_Interaction_Detection\datasets\higgs\higgs_new.csv'
 header = True
-index = False
-is_classification = False
+index = True
+is_classification = True
 # ****************************************************************
 
 np.random.seed(0)
@@ -52,5 +52,5 @@ if (is_classification) :
     mi = sklearn.mutual_info_classif(X, y, 'auto', 3, True, 123)
 else:
     mi = sklearn.mutual_info_regression(X, y, 'auto', 3, True, 123)
-print(mi)
+print(list(mi))
 
