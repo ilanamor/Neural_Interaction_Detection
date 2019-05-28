@@ -24,7 +24,7 @@ def read_csv():
             df[y] = label_encoder.fit_transform(df[y])
     return df
 
-def prepare_data(train, test, X_full, Y_full, num_input):
+def prepare_data(train, test, X_full, Y_full):
     tr_x, te_x, tr_y, te_y = X_full[train], X_full[test], Y_full[train], Y_full[test]
     return tr_x, te_x, tr_y, te_y
 
