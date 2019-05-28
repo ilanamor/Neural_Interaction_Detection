@@ -77,7 +77,7 @@ for i in range(len(selected),0,-1):
     rmse = 0
     kfold = KFold(n_splits=k_fold, random_state=1992, shuffle=True)
     for train, test in kfold.split(X):
-        X_train, X_test, y_train, y_test = prepare_data(train, test, X, y, num_input=X.shape[1]-1)
+        X_train, X_test, y_train, y_test = prepare_data(train, test, X, y)
 
         if is_classification:
             model = MLPClassifier(random_state=123)
