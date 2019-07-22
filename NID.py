@@ -642,7 +642,10 @@ class NID:
         self.write_to_csv(interaction_ranking, self.higher_order_out_name)
         self.write_to_csv(pairwise_ranking, self.pairwise_out_name)
 
-
+    # The output (path taken from the UI): (1)Two csv files ,(2) Heat-Map for pairwise interactions, (3)Log file
+    # 1st csv file for pairwise interaction
+    # 2nd csv file for higher order interaction
+    # every line contains interaction and strength
     def write_to_csv(self, interactions, name):
         with open(name , 'w') as out:
             csv_out = csv.writer(out, lineterminator='\n')
